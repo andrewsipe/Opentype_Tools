@@ -17,6 +17,7 @@ __all__ = [
     "WrapperPlan",
     "WrapperStrategyEngine",
     "WrapperExecutor",
+    "PositioningRuleGenerator",
 ]
 
 # Import main exports for convenience
@@ -37,3 +38,4 @@ from opentype_features.opentype_features_wrapper import (
     WrapperStrategyEngine,
     WrapperExecutor,
 )
+from opentype_features.opentype_features_positioning import PositioningRuleGenerator

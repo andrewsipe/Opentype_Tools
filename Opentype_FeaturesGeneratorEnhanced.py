@@ -41,6 +41,14 @@ Phase 1 Enhanced Features:
 - Case-Sensitive Forms (case): .case suffixes
 - Titling Alternates (titl): .titling, .titl suffixes
 
+Phase 2 Positioning Features (requires --enable-positioning):
+- Capital Spacing (cpsp): Adds spacing between all-caps text
+- Numerator (numr): Standalone numerator forms (.numr suffix)
+- Denominator (dnom): Standalone denominator forms (.dnom suffix)
+- Scientific Inferiors (sinf): Chemical formulas, mathematical notation (.sinf suffix)
+- Historical Forms (hist): Long s, historical ligatures (.hist suffix)
+- Kerning (kern): Audit and repair kerning pairs (requires --apply-kern-repair)
+
 Usage Examples:
   # Analyze font (show detected features)
   ./Tools_OpentypeFeaturesGenerator.py font.otf
@@ -59,6 +67,12 @@ Usage Examples:
 
   # Add table scaffolding (wrapper subcommand)
   ./Tools_OpentypeFeaturesGenerator.py wrapper font.otf --enrich --drop-kern
+
+  # Apply features with Phase 2 positioning enabled
+  ./Tools_OpentypeFeaturesGenerator.py font.otf --apply --enable-positioning
+
+  # Apply features with positioning and kern repair
+  ./Tools_OpentypeFeaturesGenerator.py font.otf --apply --enable-positioning --apply-kern-repair
 
 Exit code is non-zero if any error occurred.
 """
@@ -180,6 +194,12 @@ class GlyphPatternDetector:
         features["zero"] = self._detect_slashed_zero()
         features["case"] = self._detect_case_sensitive()
         features["titl"] = self._detect_titling()
+
+        # Phase 2 positioning features
+        features["numr"] = self._detect_numr()
+        features["dnom"] = self._detect_dnom()
+        features["sinf"] = self._detect_sinf()
+        features["hist"] = self._detect_hist()
 
         return features
 
@@ -380,8 +400,8 @@ class GlyphPatternDetector:
             match = calt_pattern.match(glyph_name)
             if match:
                 base_name = match.group(1)
-            if base_name in self.glyph_order:
-                contextual_alternates.append((base_name, glyph_name))
+                if base_name in self.glyph_order:
+                    contextual_alternates.append((base_name, glyph_name))
 
         return contextual_alternates
 
@@ -558,6 +578,74 @@ class GlyphPatternDetector:
                     break
 
         return titling_variants
+
+    def _detect_numr(self) -> List[Tuple[str, str]]:
+        """Detect standalone numerator glyphs."""
+        from opentype_features.opentype_features_config import CONFIG
+
+        patterns = CONFIG.PHASE2_FEATURE_PATTERNS.get("numr", [])
+        numr_variants = []
+
+        for glyph_name in self.glyph_order:
+            for pattern in patterns:
+                if glyph_name.endswith(pattern):
+                    base_name = glyph_name[: -len(pattern)]
+                    if base_name in self.glyph_order:
+                        numr_variants.append((base_name, glyph_name))
+                    break
+
+        return numr_variants
+
+    def _detect_dnom(self) -> List[Tuple[str, str]]:
+        """Detect standalone denominator glyphs."""
+        from opentype_features.opentype_features_config import CONFIG
+
+        patterns = CONFIG.PHASE2_FEATURE_PATTERNS.get("dnom", [])
+        dnom_variants = []
+
+        for glyph_name in self.glyph_order:
+            for pattern in patterns:
+                if glyph_name.endswith(pattern):
+                    base_name = glyph_name[: -len(pattern)]
+                    if base_name in self.glyph_order:
+                        dnom_variants.append((base_name, glyph_name))
+                    break
+
+        return dnom_variants
+
+    def _detect_sinf(self) -> List[Tuple[str, str]]:
+        """Detect scientific inferior glyphs."""
+        from opentype_features.opentype_features_config import CONFIG
+
+        patterns = CONFIG.PHASE2_FEATURE_PATTERNS.get("sinf", [])
+        sinf_variants = []
+
+        for glyph_name in self.glyph_order:
+            for pattern in patterns:
+                if glyph_name.endswith(pattern):
+                    base_name = glyph_name[: -len(pattern)]
+                    if base_name in self.glyph_order:
+                        sinf_variants.append((base_name, glyph_name))
+                    break
+
+        return sinf_variants
+
+    def _detect_hist(self) -> List[Tuple[str, str]]:
+        """Detect historical form glyphs."""
+        from opentype_features.opentype_features_config import CONFIG
+
+        patterns = CONFIG.PHASE2_FEATURE_PATTERNS.get("hist", [])
+        hist_variants = []
+
+        for glyph_name in self.glyph_order:
+            for pattern in patterns:
+                if glyph_name.endswith(pattern):
+                    base_name = glyph_name[: -len(pattern)]
+                    if base_name in self.glyph_order:
+                        hist_variants.append((base_name, glyph_name))
+                    break
+
+        return hist_variants
 
 
 # ============================================================================
@@ -1079,23 +1167,25 @@ class FeatureCodeGenerator:
         dnom_map = {base: variant for base, variant in denominators}
 
         # Generate substitution rules for fraction patterns
-        if slash_glyph and num_map and dnom_map:
-            # Build glyph classes for numbers
-            num_bases = list(num_map.keys())
-            dnom_bases = list(dnom_map.keys())
+        if slash_glyph and (num_map or dnom_map):
+            # Handle numerators with slash
+            if num_map:
+                num_bases = list(num_map.keys())
+                lines.append("  # Substitute numbers before slash with numerators")
+                lines.append(
+                    f"  sub [{' '.join(num_bases)}] {slash_glyph}' by {slash_glyph};"
+                )
+                for base in num_bases:
+                    lines.append(f"  sub {base}' {slash_glyph} by {num_map[base]};")
 
-            lines.append("  # Substitute numbers before slash with numerators")
-            lines.append(
-                f"  sub [{' '.join(num_bases)}] {slash_glyph}' by {slash_glyph};"
-            )
-            for base in num_bases:
-                lines.append(f"  sub {base}' {slash_glyph} by {num_map[base]};")
-
-            lines.append("  # Substitute numbers after slash with denominators")
-            for base in dnom_bases:
-                lines.append(f"  sub {slash_glyph} {base}' by {dnom_map[base]};")
+            # Handle denominators with slash
+            if dnom_map:
+                dnom_bases = list(dnom_map.keys())
+                lines.append("  # Substitute numbers after slash with denominators")
+                for base in dnom_bases:
+                    lines.append(f"  sub {slash_glyph} {base}' by {dnom_map[base]};")
         else:
-            # Simple substitutions if no slash found
+            # Simple substitutions if no slash found or only one type exists
             for base, variant in numerators:
                 lines.append(f"  sub {base} by {variant};")
             for base, variant in denominators:
@@ -1115,7 +1205,9 @@ class FeatureCodeGenerator:
         return FeatureCodeGenerator.generate_substitution_feature("subs", substitutions)
 
     @staticmethod
-    def generate_ordn_feature(substitutions: List[Tuple[str, str]]) -> str:
+    def generate_ordn_feature(
+        substitutions: List[Tuple[str, str]], font: Optional[TTFont] = None
+    ) -> str:
         """Generate ordn (ordinals) feature code with contextual substitution."""
         if not substitutions:
             return ""
@@ -1124,25 +1216,61 @@ class FeatureCodeGenerator:
         lines.append("  # Ordinals - contextual substitution after numbers")
         lines.append("  # 1st, 2nd, 3rd, 4th, etc.")
 
-        # Build glyph classes for numbers and ordinals
-        number_glyphs = [
-            "zero",
-            "one",
-            "two",
-            "three",
-            "four",
-            "five",
-            "six",
-            "seven",
-            "eight",
-            "nine",
-        ]
+        # Build glyph classes for numbers - validate they exist in font
+        if font:
+            glyph_order = set(font.getGlyphOrder())
+            # Try common number glyph names (with and without suffixes)
+            base_numbers = [
+                "zero",
+                "one",
+                "two",
+                "three",
+                "four",
+                "five",
+                "six",
+                "seven",
+                "eight",
+                "nine",
+            ]
+            number_glyphs = []
+            # Check base names first
+            for num_name in base_numbers:
+                if num_name in glyph_order:
+                    number_glyphs.append(num_name)
+                else:
+                    # Try with common suffixes
+                    for suffix in [".oldstyle", ".lining", ".onum", ".lnum"]:
+                        candidate = num_name + suffix
+                        if candidate in glyph_order:
+                            number_glyphs.append(candidate)
+                            break
+        else:
+            # Fallback to hardcoded list if no font provided
+            number_glyphs = [
+                "zero",
+                "one",
+                "two",
+                "three",
+                "four",
+                "five",
+                "six",
+                "seven",
+                "eight",
+                "nine",
+            ]
 
-        # Contextual substitution: number followed by ordinal letter
-        for base, variant in substitutions:
-            # Common ordinal patterns: a (1st), o (2nd), n (3rd), h (4th)
-            if base.lower() in ["a", "o", "n", "h", "r", "t", "s"]:
-                lines.append(f"  sub [{' '.join(number_glyphs)}] {base}' by {variant};")
+        if not number_glyphs:
+            # No number glyphs found, use simple substitution
+            for base, variant in substitutions:
+                lines.append(f"  sub {base} by {variant};")
+        else:
+            # Contextual substitution: number followed by ordinal letter
+            for base, variant in substitutions:
+                # Common ordinal patterns: a (1st), o (2nd), n (3rd), h (4th)
+                if base.lower() in ["a", "o", "n", "h", "r", "t", "s"]:
+                    lines.append(
+                        f"  sub [{' '.join(number_glyphs)}] {base}' by {variant};"
+                    )
 
         lines.append("} ordn;")
         return "\n".join(lines)
@@ -1179,7 +1307,9 @@ class FeatureCodeGenerator:
         return "\n".join(lines)
 
     @staticmethod
-    def generate_case_feature(substitutions: List[Tuple[str, str]]) -> str:
+    def generate_case_feature(
+        substitutions: List[Tuple[str, str]], font: Optional[TTFont] = None
+    ) -> str:
         """Generate case (case-sensitive forms) feature code with contextual substitution."""
         if not substitutions:
             return ""
@@ -1189,14 +1319,44 @@ class FeatureCodeGenerator:
             "  # Case-Sensitive Forms - substitutes when preceded by uppercase"
         )
 
-        # Build uppercase glyph class
-        uppercase = [chr(ord("A") + i) for i in range(26)]
+        # Build uppercase glyph class - detect from font if available
+        if font:
+            glyph_order = set(font.getGlyphOrder())
+            best_cmap = font.getBestCmap() or {}
+            # Find uppercase letters using Unicode mapping
+            uppercase = []
+            for cp in range(0x0041, 0x005B):  # A-Z
+                if cp in best_cmap:
+                    glyph_name = best_cmap[cp]
+                    if glyph_name in glyph_order:
+                        uppercase.append(glyph_name)
+            # Also check for common uppercase glyph name patterns
+            if not uppercase:
+                for glyph_name in glyph_order:
+                    if len(glyph_name) == 1 and glyph_name.isupper():
+                        uppercase.append(glyph_name)
+                    elif glyph_name.startswith("uni") and len(glyph_name) == 7:
+                        # Check if it's a capital letter (uni0041 = A)
+                        try:
+                            cp = int(glyph_name[3:7], 16)
+                            if 0x0041 <= cp <= 0x005A:
+                                uppercase.append(glyph_name)
+                        except ValueError:
+                            pass
+        else:
+            # Fallback to hardcoded list if no font provided
+            uppercase = [chr(ord("A") + i) for i in range(26)]
 
-        for base_glyph, variant_glyph in substitutions:
-            # Contextual substitution: uppercase letter followed by case-sensitive glyph
-            lines.append(
-                f"  sub [{' '.join(uppercase)}] {base_glyph}' by {variant_glyph};"
-            )
+        if uppercase:
+            for base_glyph, variant_glyph in substitutions:
+                # Contextual substitution: uppercase letter followed by case-sensitive glyph
+                lines.append(
+                    f"  sub [{' '.join(uppercase)}] {base_glyph}' by {variant_glyph};"
+                )
+        else:
+            # No uppercase glyphs found, use simple substitution
+            for base_glyph, variant_glyph in substitutions:
+                lines.append(f"  sub {base_glyph} by {variant_glyph};")
 
         lines.append("} case;")
         return "\n".join(lines)
@@ -1213,6 +1373,26 @@ class FeatureCodeGenerator:
             lines.append(f"  sub {base_glyph} by {variant_glyph};")
         lines.append("} titl;")
         return "\n".join(lines)
+
+    @staticmethod
+    def generate_numr_feature(substitutions: List[Tuple[str, str]]) -> str:
+        """Generate numr (standalone numerators) feature code."""
+        return FeatureCodeGenerator.generate_substitution_feature("numr", substitutions)
+
+    @staticmethod
+    def generate_dnom_feature(substitutions: List[Tuple[str, str]]) -> str:
+        """Generate dnom (standalone denominators) feature code."""
+        return FeatureCodeGenerator.generate_substitution_feature("dnom", substitutions)
+
+    @staticmethod
+    def generate_sinf_feature(substitutions: List[Tuple[str, str]]) -> str:
+        """Generate sinf (scientific inferiors) feature code."""
+        return FeatureCodeGenerator.generate_substitution_feature("sinf", substitutions)
+
+    @staticmethod
+    def generate_hist_feature(substitutions: List[Tuple[str, str]]) -> str:
+        """Generate hist (historical forms) feature code."""
+        return FeatureCodeGenerator.generate_substitution_feature("hist", substitutions)
 
 
 # ============================================================================
@@ -2559,6 +2739,8 @@ class FontProcessor:
         ss_labels: Optional[Dict[int, str]] = None,
         dry_run: bool = False,
         optimize: bool = False,
+        enable_positioning: bool = False,
+        apply_kern_repair: bool = False,
     ):
         self.font_path = font_path
         self.apply_features = apply_features
@@ -2567,6 +2749,8 @@ class FontProcessor:
         self.ss_labels = ss_labels
         self.dry_run = dry_run
         self.optimize = optimize
+        self.enable_positioning = enable_positioning
+        self.apply_kern_repair = apply_kern_repair
 
     def process(self) -> bool:
         """Process the font file."""
@@ -2828,6 +3012,18 @@ class FontProcessor:
             else:
                 filtered[single_tag] = []
 
+        # Filter Phase 2 single substitutions (numr, dnom, sinf, hist)
+        for single_tag in ["numr", "dnom", "sinf", "hist"]:
+            if single_tag in detected:
+                filtered_subs = [
+                    (base, alt)
+                    for base, alt in detected[single_tag]
+                    if (base, alt) not in existing_single
+                ]
+                filtered[single_tag] = filtered_subs
+            else:
+                filtered[single_tag] = []
+
         # Filter fractions (special structure: dict with numerators/denominators)
         if "frac" in detected:
             frac_data = detected["frac"]
@@ -2867,6 +3063,21 @@ class FontProcessor:
             filtered["stylistic_sets"] = {}
 
         return filtered
+
+    def _detect_capital_glyphs(self, font: TTFont) -> List[str]:
+        """Detect capital letter glyphs from font."""
+        glyph_order = set(font.getGlyphOrder())
+        best_cmap = font.getBestCmap() or {}
+
+        capitals = []
+        # Find uppercase letters using Unicode mapping
+        for cp in range(0x0041, 0x005B):  # A-Z
+            if cp in best_cmap:
+                glyph_name = best_cmap[cp]
+                if glyph_name in glyph_order:
+                    capitals.append(glyph_name)
+
+        return capitals
 
     def _apply_mode(self, font: TTFont, detected: Dict[str, any]) -> bool:
         """Generate and apply features to the font."""
@@ -3141,8 +3352,12 @@ class FontProcessor:
                     applied_features.append(("calt", len(filtered_calt), glyphs))
 
         # Phase 1 enhanced features
-        # Generate fractions
-        if should_apply("frac"):
+        # Generate fractions (skip if enhanced positioning will be used)
+        use_enhanced_frac = self.enable_positioning and (
+            filtered_features.get("numr") or filtered_features.get("dnom")
+        )
+
+        if should_apply("frac") and not use_enhanced_frac:
             frac_data = filtered_features.get("frac", {})
             if isinstance(frac_data, dict):
                 numerators = frac_data.get("numerators", [])
@@ -3188,7 +3403,7 @@ class FontProcessor:
         if should_apply("ordn"):
             filtered_ordn = filtered_features.get("ordn", [])
             if filtered_ordn:
-                code = generator.generate_ordn_feature(filtered_ordn)
+                code = generator.generate_ordn_feature(filtered_ordn, font)
                 if code:
                     feature_blocks.append(code)
                     glyphs = [f"{base} → {alt}" for base, alt in filtered_ordn]
@@ -3228,7 +3443,7 @@ class FontProcessor:
         if should_apply("case"):
             filtered_case = filtered_features.get("case", [])
             if filtered_case:
-                code = generator.generate_case_feature(filtered_case)
+                code = generator.generate_case_feature(filtered_case, font)
                 if code:
                     feature_blocks.append(code)
                     glyphs = [f"{base} → {alt}" for base, alt in filtered_case]
@@ -3243,6 +3458,74 @@ class FontProcessor:
                     feature_blocks.append(code)
                     glyphs = [f"{base} → {alt}" for base, alt in filtered_titl]
                     applied_features.append(("titl", len(filtered_titl), glyphs))
+
+        # Phase 2 positioning features
+        from opentype_features.opentype_features_positioning import (
+            PositioningRuleGenerator,
+        )
+
+        # Generate numr, dnom, sinf, hist features (simple substitutions)
+        for tag in ["numr", "dnom", "sinf", "hist"]:
+            if should_apply(tag):
+                filtered_subs = filtered_features.get(tag, [])
+                if filtered_subs:
+                    code = generator.generate_substitution_feature(tag, filtered_subs)
+                    if code:
+                        feature_blocks.append(code)
+                        glyphs = [f"{base} → {alt}" for base, alt in filtered_subs]
+                        applied_features.append((tag, len(filtered_subs), glyphs))
+
+        # Capital spacing (cpsp) - requires positioning enabled
+        if should_apply("cpsp") and self.enable_positioning:
+            pos_gen = PositioningRuleGenerator(font)
+            capital_glyphs = self._detect_capital_glyphs(font)
+            if capital_glyphs:
+                cpsp_code = pos_gen.generate_cpsp_rules(capital_glyphs)
+                if cpsp_code:
+                    feature_blocks.append(cpsp_code)
+                    applied_features.append(("cpsp", len(capital_glyphs), []))
+
+        # Enhanced fraction positioning (if numr/dnom exist and positioning enabled)
+        if should_apply("frac") and self.enable_positioning:
+            frac_data = filtered_features.get("frac", {})
+            numr_data = filtered_features.get("numr", [])
+            dnom_data = filtered_features.get("dnom", [])
+
+            # Use enhanced positioning if numr/dnom exist
+            if numr_data or dnom_data:
+                pos_gen = PositioningRuleGenerator(font)
+                numr_glyphs = [g for _, g in numr_data] if numr_data else []
+                dnom_glyphs = [g for _, g in dnom_data] if dnom_data else []
+                frac_code = pos_gen.generate_fraction_positioning(
+                    numr_glyphs, dnom_glyphs
+                )
+                if frac_code:
+                    # Check if we already added a simple frac feature
+                    # If so, we should replace it, but for now just add the enhanced one
+                    # (The simple one will be filtered out by the compiler)
+                    feature_blocks.append(frac_code)
+                    applied_features.append(
+                        ("frac", len(numr_glyphs) + len(dnom_glyphs), [])
+                    )
+
+        # Kern audit and repair (automatic when positioning enabled)
+        if self.enable_positioning:
+            pos_gen = PositioningRuleGenerator(font)
+            kern_issues = pos_gen.validate_kern_table(font)
+
+            if kern_issues.get("missing_pairs") or kern_issues.get("extreme_values"):
+                cs.StatusIndicator("info").add_message(
+                    f"Kerning audit: {len(kern_issues.get('missing_pairs', []))} missing pairs, "
+                    f"{len(kern_issues.get('extreme_values', []))} extreme values"
+                ).emit()
+
+                if self.apply_kern_repair and kern_issues.get("missing_pairs"):
+                    kern_repair_code = pos_gen.repair_kern_table(kern_issues)
+                    if kern_repair_code:
+                        feature_blocks.append(kern_repair_code)
+                        applied_features.append(
+                            ("kern", len(kern_issues["missing_pairs"]), [])
+                        )
 
         # Generate stylistic sets (filtered at substitution level)
         if detected["stylistic_sets"]:
@@ -3634,6 +3917,20 @@ Examples:
         action="store_true",
         dest="overwrite_labels",
         help="Overwrite existing name table labels when used with --audit --apply (audit/repair mode)",
+    )
+
+    parser.add_argument(
+        "--enable-positioning",
+        action="store_true",
+        dest="enable_positioning",
+        help="Enable Phase 2 positioning features (cpsp, enhanced frac, kern repair)",
+    )
+
+    parser.add_argument(
+        "--apply-kern-repair",
+        action="store_true",
+        dest="apply_kern_repair",
+        help="Automatically repair missing kerning pairs (requires --enable-positioning)",
     )
 
     # Wrapper subcommand (only create if subparsers exist)
@@ -4073,6 +4370,8 @@ Examples:
                 ss_labels=ss_labels,
                 dry_run=args.dry_run,
                 optimize=args.optimize,
+                enable_positioning=getattr(args, "enable_positioning", False),
+                apply_kern_repair=getattr(args, "apply_kern_repair", False),
             )
 
             if processor.process():

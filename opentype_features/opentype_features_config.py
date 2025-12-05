@@ -4,7 +4,7 @@ Configuration constants for OpenType feature generation.
 Centralizes all magic numbers, feature sets, and pattern definitions.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Set
 
 
@@ -45,21 +45,40 @@ class FeatureConfig:
             "zero",
             "case",
             "titl",
+            # Phase 2 positioning features
+            "cpsp",
+            "numr",
+            "dnom",
+            "sinf",
+            "hist",
+            "kern",
         }
     )
 
     # Phase 1 feature patterns
-    PHASE1_FEATURE_PATTERNS: Dict[str, List[str]] = {
-        "frac": [".numerator", ".denominator", ".numr", ".dnom"],
-        "sups": [".superior", ".sups"],
-        "subs": [".inferior", ".subs"],
-        "ordn": [".ordn"],
-        "c2sc": [".c2sc"],
-        "salt": [".alt", ".alt01", ".alt02"],
-        "zero": [".slash", ".zero"],
-        "case": [".case"],
-        "titl": [".titling", ".titl"],
-    }
+    PHASE1_FEATURE_PATTERNS: Dict[str, List[str]] = field(
+        default_factory=lambda: {
+            "frac": [".numerator", ".denominator", ".numr", ".dnom"],
+            "sups": [".superior", ".sups"],
+            "subs": [".inferior", ".subs"],
+            "ordn": [".ordn"],
+            "c2sc": [".c2sc"],
+            "salt": [".alt", ".alt01", ".alt02"],
+            "zero": [".slash", ".zero"],
+            "case": [".case"],
+            "titl": [".titling", ".titl"],
+        }
+    )
+
+    # Phase 2 feature patterns
+    PHASE2_FEATURE_PATTERNS: Dict[str, List[str]] = field(
+        default_factory=lambda: {
+            "numr": [".numr"],
+            "dnom": [".dnom"],
+            "sinf": [".sinf"],
+            "hist": [".hist"],
+        }
+    )
 
     # Glyph name patterns
     SPECIAL_GLYPHS: Set[str] = frozenset({".notdef", ".null", "nonmarkingreturn"})
