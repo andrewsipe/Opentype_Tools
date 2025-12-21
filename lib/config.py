@@ -95,3 +95,4 @@ class FeatureConfig:
 
 # Global configuration instance
 CONFIG = FeatureConfig()
+

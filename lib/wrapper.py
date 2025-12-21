@@ -9,12 +9,17 @@ from typing import List, Set, Tuple
 
 from fontTools.ttLib import TTFont
 
-from .opentype_features_detection import UnifiedGlyphDetector
-from .opentype_features_results import OperationResult
-from .opentype_features_validation import FontValidator
-
-# Import wrapper helper functions from main module
-# These will be imported dynamically to avoid circular imports
+from .detection import UnifiedGlyphDetector
+from .results import OperationResult
+from .validation import FontValidator
+from .wrapper_helpers import (
+    create_cmap,
+    create_dsig_stub,
+    create_gdef,
+    create_gpos,
+    create_gsub,
+    enrich_font,
+)
 
 
 @dataclass
@@ -262,59 +267,9 @@ class WrapperExecutor:
         result = OperationResult(success=True)
         has_changes = False
 
-        # Import wrapper functions from main module to avoid circular imports
-        # The module might be loaded as __main__ when run as a script
-        import sys
-        import importlib.util
-        import os
-
-        main_module = None
-
-        # First, try to find the module in sys.modules by checking for the functions
-        for name, module in sys.modules.items():
-            if hasattr(module, "ensure_cmap") and hasattr(module, "enrich_font"):
-                main_module = module
-                break
-
-        # If not found, try to load it from the file system
-        if main_module is None:
-            script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            module_path = os.path.join(script_dir, "Tools_OpentypeFeaturesGenerator.py")
-            if os.path.exists(module_path):
-                try:
-                    spec = importlib.util.spec_from_file_location(
-                        "Tools_OpentypeFeaturesGenerator", module_path
-                    )
-                    if spec and spec.loader:
-                        main_module = importlib.util.module_from_spec(spec)
-                        spec.loader.exec_module(main_module)
-                except Exception:
-                    pass
-
-        if main_module is None:
-            result.add_error(
-                "Could not import wrapper functions from main module",
-                "Wrapper functions (ensure_cmap, ensure_gdef, etc.) not found",
-            )
-            return result, False
-
-        try:
-            ensure_cmap = main_module.ensure_cmap
-            ensure_gdef = main_module.ensure_gdef
-            ensure_gpos = main_module.ensure_gpos
-            ensure_gsub = main_module.ensure_gsub
-            ensure_dsig_stub = main_module.ensure_dsig_stub
-            enrich_font = main_module.enrich_font
-        except AttributeError as e:
-            result.add_error(
-                f"Missing required function in main module: {e}",
-                "Some wrapper functions are not available",
-            )
-            return result, False
-
         # Execute scaffolding operations
         if self.plan.needs_cmap:
-            changed, msgs = ensure_cmap(self.font, overwrite_unicode=False)
+            changed, msgs = create_cmap(self.font, overwrite_unicode=False)
             if changed:
                 has_changes = True
                 result.add_info("Created Unicode cmap")
@@ -322,7 +277,7 @@ class WrapperExecutor:
                 result.add_info(msg)
 
         if self.plan.needs_gdef:
-            changed, msg = ensure_gdef(self.font, overwrite=False)
+            changed, msg = create_gdef(self.font, overwrite=False)
             if changed:
                 has_changes = True
                 result.add_info(msg)
@@ -330,7 +285,7 @@ class WrapperExecutor:
                 result.add_info(msg)
 
         if self.plan.needs_gpos:
-            changed, msg = ensure_gpos(self.font, overwrite=False)
+            changed, msg = create_gpos(self.font, overwrite=False)
             if changed:
                 has_changes = True
                 result.add_info(msg)
@@ -338,7 +293,7 @@ class WrapperExecutor:
                 result.add_info(msg)
 
         if self.plan.needs_gsub:
-            changed, msg = ensure_gsub(self.font, overwrite=False)
+            changed, msg = create_gsub(self.font, overwrite=False)
             if changed:
                 has_changes = True
                 result.add_info(msg)
@@ -347,7 +302,7 @@ class WrapperExecutor:
 
         # DSIG is handled separately in user_prefs
         if self.plan.needs_dsig:
-            changed, msg = ensure_dsig_stub(self.font, enable=True)
+            changed, msg = create_dsig_stub(self.font, enable=True)
             if changed:
                 has_changes = True
                 result.add_info(msg)
@@ -375,3 +330,4 @@ class WrapperExecutor:
                 result.add_info(msg)
 
         return result, has_changes
+

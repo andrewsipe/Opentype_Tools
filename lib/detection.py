@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 from fontTools.agl import toUnicode
 from fontTools.ttLib import TTFont
 
-from .opentype_features_config import CONFIG
+from .config import CONFIG
 
 
 @dataclass
@@ -459,3 +459,4 @@ class UnifiedGlyphDetector:
                 features["titl"].append((classification.base_glyph, glyph_name))
 
         return features
+

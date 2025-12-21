@@ -12,8 +12,8 @@ from typing import Dict, List, Set
 from fontTools.agl import toUnicode
 from fontTools.ttLib import TTFont
 
-from .opentype_features_config import CONFIG
-from .opentype_features_results import OperationResult
+from .config import CONFIG
+from .results import OperationResult
 
 
 @dataclass
@@ -386,3 +386,4 @@ class FontValidator:
         except Exception:
             pass
         return inv
+
