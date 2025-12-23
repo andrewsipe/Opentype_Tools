@@ -70,7 +70,9 @@ def generate_audit_fea(
     if active_fea:
         sections.append("# " + "=" * 50)
         sections.append("# EXISTING ACTIVE FEATURES")
-        sections.append(f"# Extracted from font on {datetime.now().strftime('%Y-%m-%d')}")
+        sections.append(
+            f"# Extracted from font on {datetime.now().strftime('%Y-%m-%d')}"
+        )
         sections.append("# " + "=" * 50)
         sections.append("")
         sections.append(active_fea)
@@ -146,39 +148,57 @@ def generate_audit_fea(
         feature_map = {
             "liga": (
                 "Standard Ligatures",
-                lambda: FeatureCodeGenerator.generate_liga_feature(detected.get("liga", [])),
+                lambda: FeatureCodeGenerator.generate_liga_feature(
+                    detected.get("liga", [])
+                ),
             ),
             "dlig": (
                 "Discretionary Ligatures",
-                lambda: FeatureCodeGenerator.generate_dlig_feature(detected.get("dlig", [])),
+                lambda: FeatureCodeGenerator.generate_dlig_feature(
+                    detected.get("dlig", [])
+                ),
             ),
             "smcp": (
                 "Small Caps",
-                lambda: FeatureCodeGenerator.generate_smcp_feature(detected.get("smcp", [])),
+                lambda: FeatureCodeGenerator.generate_smcp_feature(
+                    detected.get("smcp", [])
+                ),
             ),
             "onum": (
                 "Oldstyle Figures",
-                lambda: FeatureCodeGenerator.generate_onum_feature(detected.get("onum", [])),
+                lambda: FeatureCodeGenerator.generate_onum_feature(
+                    detected.get("onum", [])
+                ),
             ),
             "lnum": (
                 "Lining Figures",
-                lambda: FeatureCodeGenerator.generate_lnum_feature(detected.get("lnum", [])),
+                lambda: FeatureCodeGenerator.generate_lnum_feature(
+                    detected.get("lnum", [])
+                ),
             ),
             "tnum": (
                 "Tabular Figures",
-                lambda: FeatureCodeGenerator.generate_tnum_feature(detected.get("tnum", [])),
+                lambda: FeatureCodeGenerator.generate_tnum_feature(
+                    detected.get("tnum", [])
+                ),
             ),
             "pnum": (
                 "Proportional Figures",
-                lambda: FeatureCodeGenerator.generate_pnum_feature(detected.get("pnum", [])),
+                lambda: FeatureCodeGenerator.generate_pnum_feature(
+                    detected.get("pnum", [])
+                ),
             ),
             "swsh": (
                 "Swashes",
-                lambda: FeatureCodeGenerator.generate_swsh_feature(detected.get("swsh", [])),
+                lambda: FeatureCodeGenerator.generate_swsh_feature(
+                    detected.get("swsh", [])
+                ),
             ),
             "calt": (
                 "Contextual Alternates",
-                lambda: FeatureCodeGenerator.generate_calt_feature(detected.get("calt", [])),
+                lambda: FeatureCodeGenerator.generate_calt_feature(
+                    detected.get("calt", [])
+                ),
             ),
             "frac": (
                 "Fractions",
@@ -190,11 +210,15 @@ def generate_audit_fea(
             ),
             "sups": (
                 "Superscripts",
-                lambda: FeatureCodeGenerator.generate_sups_feature(detected.get("sups", [])),
+                lambda: FeatureCodeGenerator.generate_sups_feature(
+                    detected.get("sups", [])
+                ),
             ),
             "subs": (
                 "Subscripts",
-                lambda: FeatureCodeGenerator.generate_subs_feature(detected.get("subs", [])),
+                lambda: FeatureCodeGenerator.generate_subs_feature(
+                    detected.get("subs", [])
+                ),
             ),
             "ordn": (
                 "Ordinals",
@@ -204,15 +228,21 @@ def generate_audit_fea(
             ),
             "c2sc": (
                 "Caps to Small Caps",
-                lambda: FeatureCodeGenerator.generate_c2sc_feature(detected.get("c2sc", [])),
+                lambda: FeatureCodeGenerator.generate_c2sc_feature(
+                    detected.get("c2sc", [])
+                ),
             ),
             "salt": (
                 "Stylistic Alternates",
-                lambda: FeatureCodeGenerator.generate_salt_feature(detected.get("salt", [])),
+                lambda: FeatureCodeGenerator.generate_salt_feature(
+                    detected.get("salt", [])
+                ),
             ),
             "zero": (
                 "Slashed Zero",
-                lambda: FeatureCodeGenerator.generate_zero_feature(detected.get("zero", [])),
+                lambda: FeatureCodeGenerator.generate_zero_feature(
+                    detected.get("zero", [])
+                ),
             ),
             "case": (
                 "Case-Sensitive Forms",
@@ -222,7 +252,9 @@ def generate_audit_fea(
             ),
             "titl": (
                 "Titling Alternates",
-                lambda: FeatureCodeGenerator.generate_titl_feature(detected.get("titl", [])),
+                lambda: FeatureCodeGenerator.generate_titl_feature(
+                    detected.get("titl", [])
+                ),
             ),
         }
 
@@ -232,7 +264,9 @@ def generate_audit_fea(
                 if fea_code:
                     # Count substitutions in the generated code
                     count = fea_code.count("sub ") or fea_code.count("pos ")
-                    suggested_features.append((feature_tag, description, count, fea_code))
+                    suggested_features.append(
+                        (feature_tag, description, count, fea_code)
+                    )
 
         if suggested_features:
             sections.append("# " + "=" * 50)
@@ -419,7 +453,9 @@ def main():
     error_count = 0
 
     for font_path in font_files:
-        cs.StatusIndicator("info").add_message(f"Processing: {font_path.name}").emit()
+        cs.StatusIndicator("parsing").add_message(
+            f"Processing: {font_path.name}"
+        ).emit()
 
         try:
             font = TTFont(font_path, lazy=False)
@@ -485,13 +521,12 @@ def main():
 
     # Summary
     if len(font_files) > 1:
-        cs.StatusIndicator("info").add_message("Processing complete").with_summary_block(
-            updated=success_count, errors=error_count
-        ).emit()
+        cs.StatusIndicator("success").add_message(
+            "Processing Complete"
+        ).with_summary_block(updated=success_count, errors=error_count).emit()
 
     return 0 if error_count == 0 else 1
 
 
 if __name__ == "__main__":
     sys.exit(main())
-

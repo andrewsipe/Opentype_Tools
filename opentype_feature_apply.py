@@ -224,7 +224,9 @@ def main():
     # Read .fea file
     fea_path = Path(args.input)
     if not fea_path.exists():
-        cs.StatusIndicator("error").add_message(f".fea file not found: {fea_path}").emit()
+        cs.StatusIndicator("error").add_message(
+            f".fea file not found: {fea_path}"
+        ).emit()
         return 1
 
     try:
@@ -252,7 +254,9 @@ def main():
     error_count = 0
 
     for font_path in font_files:
-        cs.StatusIndicator("info").add_message(f"Processing: {font_path.name}").emit()
+        cs.StatusIndicator("parsing").add_message(
+            f"Processing: {font_path.name}"
+        ).emit()
 
         try:
             font = TTFont(font_path, lazy=False)
@@ -271,8 +275,9 @@ def main():
                     cs.StatusIndicator("warning").add_message(conflict_msg).emit()
 
             if args.dry_run:
-                cs.StatusIndicator("info").add_message(
-                    "DRY RUN - would apply features"
+                # DRY prefix will be added automatically
+                cs.StatusIndicator("info", dry_run=True).add_message(
+                    "Would apply features"
                 ).with_explanation(
                     f"Mode: {'replace' if args.replace else 'merge'}"
                 ).emit()
@@ -322,7 +327,9 @@ def main():
 
                 success_count += 1
             else:
-                cs.StatusIndicator("error").add_message("Failed to apply features").emit()
+                cs.StatusIndicator("error").add_message(
+                    "Failed to apply features"
+                ).emit()
                 for msg in messages:
                     cs.StatusIndicator("error").add_message(msg).emit()
                 error_count += 1
@@ -339,13 +346,12 @@ def main():
 
     # Summary
     if len(font_files) > 1:
-        cs.StatusIndicator("info").add_message("Processing complete").with_summary_block(
-            updated=success_count, errors=error_count
-        ).emit()
+        cs.StatusIndicator("success").add_message(
+            "Processing complete"
+        ).with_summary_block(updated=success_count, errors=error_count).emit()
 
     return 0 if error_count == 0 else 1
 
 
 if __name__ == "__main__":
     sys.exit(main())
-

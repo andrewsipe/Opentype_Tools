@@ -267,7 +267,9 @@ def main():
     error_count = 0
 
     for font_path in font_files:
-        cs.StatusIndicator("info").add_message(f"Processing: {font_path.name}").emit()
+        cs.StatusIndicator("parsing").add_message(
+            f"Processing: {font_path.name}"
+        ).emit()
 
         try:
             font = TTFont(font_path, lazy=False)
@@ -290,27 +292,29 @@ def main():
                 suggested = issue["suggested_label"]
                 confidence = issue["confidence"]
 
-                status_parts = []
+                # Build status indicator with details
+                indicator = cs.StatusIndicator("info").add_message(
+                    f"ss{ss_num:02d}: {cs.fmt_count(glyph_count)} glyphs → '{suggested}' ({confidence:.2f})"
+                )
+                
+                # Add status details as items
                 if issue["missing_params"]:
-                    status_parts.append("✗ No FeatureParams")
+                    indicator.add_item("No FeatureParams", style="dim red")
                 if issue["missing_uinameid"]:
-                    status_parts.append("✗ No UINameID")
+                    indicator.add_item("No UINameID", style="dim red")
                 if issue["missing_label"]:
-                    status_parts.append("✗ No label")
+                    indicator.add_item("No label", style="dim red")
                 if issue["generic_label"]:
-                    status_parts.append("⚠ Generic label")
-                if not status_parts:
-                    status_parts.append("✓ OK")
-
-                status_str = ", ".join(status_parts)
-
-                cs.StatusIndicator("info").add_message(
-                    f"ss{ss_num:02d}: {glyph_count} glyphs → '{suggested}' ({confidence:.2f})"
-                ).with_explanation(f"Status: {status_str}").emit()
+                    indicator.add_item("Generic label", style="dim yellow")
+                if not any([issue["missing_params"], issue["missing_uinameid"], 
+                           issue["missing_label"], issue["generic_label"]]):
+                    indicator.add_item("OK", style="dim green")
+                
+                indicator.emit()
 
                 if args.verbose and issue["glyphs"]:
                     sample_glyphs = ", ".join(
-                        [f"{base}→{alt}" for base, alt in issue["glyphs"][:5]]
+                        [f"{base} → {alt}" for base, alt in issue["glyphs"][:5]]
                     )
                     cs.StatusIndicator("info").add_message(
                         f"  Sample: {sample_glyphs}"
@@ -345,13 +349,12 @@ def main():
 
     # Summary
     if len(font_files) > 1:
-        cs.StatusIndicator("info").add_message("Processing complete").with_summary_block(
-            updated=success_count, errors=error_count
-        ).emit()
+        cs.StatusIndicator("success").add_message(
+            "Processing Complete"
+        ).with_summary_block(updated=success_count, errors=error_count).emit()
 
     return 0 if error_count == 0 else 1
 
 
 if __name__ == "__main__":
     sys.exit(main())
-

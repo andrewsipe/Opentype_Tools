@@ -441,8 +441,13 @@ def enrich_font(
     if do_kern_migration:
         fea = build_kern_feature_text(font)
         if fea:
+            # Count kern pairs before migration
+            kern_count = len([line for line in fea.split("\n") if line.strip().startswith("pos")])
             ok, msg = apply_feature_text(font, fea)
-            messages.append("kern→GPOS: " + ("ok" if ok else msg))
+            if ok:
+                messages.append(f"Migrated {kern_count} kern pairs to GPOS")
+            else:
+                messages.append(f"Kern migration failed: {msg}")
             changed = changed or ok
             if ok and drop_kern_after and "kern" in font:
                 try:
@@ -459,7 +464,10 @@ def enrich_font(
         if ligs:
             fea = build_liga_feature_text(font, ligs)
             ok, msg = apply_feature_text(font, fea)
-            messages.append("liga GSUB: " + ("ok" if ok else msg))
+            if ok:
+                messages.append(f"Added {len(ligs)} ligatures to GSUB liga feature")
+            else:
+                messages.append(f"Ligature addition failed: {msg}")
             changed = changed or ok
         else:
             messages.append("No ligatures inferred from names")

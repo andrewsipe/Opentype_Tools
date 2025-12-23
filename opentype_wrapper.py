@@ -89,7 +89,9 @@ def main():
     error_count = 0
 
     for font_path in font_files:
-        cs.StatusIndicator("info").add_message(f"Processing: {font_path.name}").emit()
+        cs.StatusIndicator("parsing").add_message(
+            f"Processing: {font_path.name}"
+        ).emit()
 
         try:
             font = TTFont(font_path, lazy=False)
@@ -129,17 +131,69 @@ def main():
                     continue
 
                 if not plan.has_work():
-                    cs.StatusIndicator("info").add_message(
+                    cs.StatusIndicator("unchanged").add_message(
                         "No wrapper operations needed"
+                    ).with_explanation(
+                        "Font already has complete OpenType tables"
                     ).emit()
                     font.close()
                     success_count += 1
                     cs.emit("")
                     continue
 
+                # Show enrichment opportunities before execution
+                enrichment_ops = []
+                if plan.can_migrate_kern:
+                    enrichment_ops.append(
+                        f"Migrate {plan.kern_pair_count} kern pairs to GPOS"
+                    )
+                if plan.can_infer_liga:
+                    enrichment_ops.append(f"Add {plan.liga_count} ligatures to GSUB")
+                if plan.can_enrich_gdef:
+                    gdef_details = []
+                    if plan.mark_count > 0:
+                        gdef_details.append(f"{plan.mark_count} mark classes")
+                    if plan.ligature_caret_count > 0:
+                        gdef_details.append(
+                            f"{plan.ligature_caret_count} ligature carets"
+                        )
+                    if gdef_details:
+                        enrichment_ops.append(
+                            f"Enrich GDEF with {', '.join(gdef_details)}"
+                        )
+
+                # Always show enrichment opportunities, even if none exist
+                # Check if font already has substantial OpenType features
+                has_existing_features = (
+                    validator.state.gsub_lookup_count > 0
+                    or validator.state.gpos_lookup_count > 0
+                )
+
+                # Build explanation with context about existing features if present
+                explanation_parts = []
+                if has_existing_features:
+                    explanation_parts.append(
+                        f"Font has {validator.state.gsub_lookup_count} GSUB and "
+                        f"{validator.state.gpos_lookup_count} GPOS lookups. "
+                        "New features will be merged with existing ones."
+                    )
+
+                # Add enrichment opportunities or "NONE" if none exist
+                if enrichment_ops:
+                    explanation_parts.append(
+                        "\n".join(f"  • {op}" for op in enrichment_ops)
+                    )
+                else:
+                    explanation_parts.append("  • NONE")
+
+                cs.StatusIndicator("info").add_message(
+                    "Enrichment opportunities:"
+                ).with_explanation("\n".join(explanation_parts)).emit()
+
                 if args.dry_run:
-                    cs.StatusIndicator("info").add_message(
-                        "DRY RUN - would perform:"
+                    # Show preview (DRY prefix will be added automatically)
+                    cs.StatusIndicator("preview", dry_run=True).add_message(
+                        "Would perform:"
                     ).with_explanation(plan.summarize()).emit()
                     font.close()
                     success_count += 1
@@ -162,15 +216,13 @@ def main():
 
                 if exec_result.success:
                     # Sort Coverage tables if GSUB/GPOS tables exist
+                    coverage_sorted = 0
+                    coverage_total = 0
                     if "GSUB" in font or "GPOS" in font:
                         try:
-                            total, sorted_count = sort_coverage_tables_in_font(
-                                font, verbose=args.verbose
+                            coverage_total, coverage_sorted = (
+                                sort_coverage_tables_in_font(font, verbose=args.verbose)
                             )
-                            if sorted_count > 0:
-                                cs.StatusIndicator("info").add_message(
-                                    f"Sorted {sorted_count} of {total} Coverage table(s)"
-                                ).emit()
                         except Exception as e:
                             cs.StatusIndicator("warning").add_message(
                                 f"Failed to sort Coverage tables: {e}"
@@ -178,17 +230,78 @@ def main():
                                 "Font will be saved but Coverage tables may not be sorted"
                             ).emit()
 
+                    # Build unified change summary
+                    changes_made = []
+                    seen_cmap = False
+
+                    # Extract changes from execution result
+                    for msg in exec_result.messages:
+                        # Success messages are enrichment operations
+                        if msg.level.value == "success":
+                            # Skip the "Enrichment completed" summary message
+                            if "Enrichment completed" not in msg.message:
+                                # Capture enrichment operations
+                                if any(
+                                    keyword in msg.message
+                                    for keyword in ["Migrated", "Added", "Enriched"]
+                                ):
+                                    changes_made.append(msg.message)
+                        # Info messages include scaffolding operations
+                        elif msg.level.value == "info":
+                            # Check for scaffolding operations - prefer detailed messages
+                            if (
+                                "Created Unicode cmap" in msg.message
+                                or "Added Windows Unicode" in msg.message
+                            ):
+                                if not seen_cmap:
+                                    changes_made.append(msg.message)
+                                    seen_cmap = True
+                            elif any(
+                                keyword in msg.message
+                                for keyword in [
+                                    "Created empty GDEF",
+                                    "Created empty GSUB",
+                                    "Created empty GPOS",
+                                    "Created DSIG stub",
+                                ]
+                            ):
+                                changes_made.append(msg.message)
+
+                    # Add coverage sorting if it happened
+                    if coverage_sorted > 0:
+                        changes_made.append(
+                            f"Sorted {coverage_sorted} of {coverage_total} Coverage table(s)"
+                        )
+
+                    # Update has_changes if coverage was sorted
+                    if coverage_sorted > 0:
+                        has_changes = True
+
+                    # Filter out any empty strings and show summary only if there are actual changes
+                    changes_made = [c for c in changes_made if c and c.strip()]
+
+                    # Show unified change summary only if there are actual changes
+                    if has_changes and changes_made:
+                        cs.StatusIndicator("updated").add_message(
+                            "Changes applied:"
+                        ).with_explanation(
+                            "\n".join(f"  • {change}" for change in changes_made)
+                        ).emit()
+                    elif not has_changes:
+                        cs.StatusIndicator("unchanged").add_message(
+                            "No changes made"
+                        ).with_explanation(
+                            "Font already has all requested features or enrichment failed"
+                        ).emit()
+
                     # Only save if actual changes were made
                     if has_changes:
                         font.save(font_path)
-                        cs.StatusIndicator("success").add_message(
+                        cs.StatusIndicator("saved").add_message(
                             f"Saved: {font_path.name}"
                         ).emit()
                         success_count += 1
                     else:
-                        cs.StatusIndicator("info").add_message(
-                            "No changes made"
-                        ).emit()
                         success_count += 1
                 else:
                     cs.StatusIndicator("error").add_message(
@@ -220,13 +333,12 @@ def main():
 
     # Summary
     if len(font_files) > 1:
-        cs.StatusIndicator("info").add_message("Processing complete").with_summary_block(
-            updated=success_count, errors=error_count
-        ).emit()
+        cs.StatusIndicator("success").add_message(
+            "Processing Complete"
+        ).with_summary_block(updated=success_count, errors=error_count).emit()
 
     return 0 if error_count == 0 else 1
 
 
 if __name__ == "__main__":
     sys.exit(main())
-
