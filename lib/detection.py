@@ -459,4 +459,3 @@ class UnifiedGlyphDetector:
                 features["titl"].append((classification.base_glyph, glyph_name))
 
         return features
-

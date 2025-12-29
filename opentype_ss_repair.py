@@ -296,7 +296,7 @@ def main():
                 indicator = cs.StatusIndicator("info").add_message(
                     f"ss{ss_num:02d}: {cs.fmt_count(glyph_count)} glyphs → '{suggested}' ({confidence:.2f})"
                 )
-                
+
                 # Add status details as items
                 if issue["missing_params"]:
                     indicator.add_item("No FeatureParams", style="dim red")
@@ -306,10 +306,16 @@ def main():
                     indicator.add_item("No label", style="dim red")
                 if issue["generic_label"]:
                     indicator.add_item("Generic label", style="dim yellow")
-                if not any([issue["missing_params"], issue["missing_uinameid"], 
-                           issue["missing_label"], issue["generic_label"]]):
+                if not any(
+                    [
+                        issue["missing_params"],
+                        issue["missing_uinameid"],
+                        issue["missing_label"],
+                        issue["generic_label"],
+                    ]
+                ):
                     indicator.add_item("OK", style="dim green")
-                
+
                 indicator.emit()
 
                 if args.verbose and issue["glyphs"]:

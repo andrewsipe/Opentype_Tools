@@ -118,4 +118,3 @@ class OperationResult:
             if msg.details:
                 indicator.with_explanation(msg.details)
             indicator.emit()
-

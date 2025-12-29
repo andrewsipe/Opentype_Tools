@@ -170,7 +170,9 @@ def main():
     if len(font_files) > 1:
         # Build summary with indented statistics using StatusIndicator
         # DRY prefix will be added automatically if dry_run=True
-        summary = cs.StatusIndicator("success", dry_run=args.dry_run).add_message("Processing complete")
+        summary = cs.StatusIndicator("success", dry_run=args.dry_run).add_message(
+            "Processing complete"
+        )
 
         summary.add_item(f"Files analyzed: {len(font_files)}")
 

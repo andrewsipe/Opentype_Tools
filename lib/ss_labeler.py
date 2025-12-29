@@ -219,9 +219,7 @@ class SSLabeler:
 
         return label, 0.3
 
-    def _analyze_base_types(
-        self, glyphs: List[Tuple[str, str]]
-    ) -> Dict[str, int]:
+    def _analyze_base_types(self, glyphs: List[Tuple[str, str]]) -> Dict[str, int]:
         """Analyze base glyph types."""
         types = {"uppercase": 0, "lowercase": 0, "other": 0}
 
@@ -248,4 +246,3 @@ class SSLabeler:
                     types["other"] += 1
 
         return types
-

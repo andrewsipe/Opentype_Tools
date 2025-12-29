@@ -442,7 +442,9 @@ def enrich_font(
         fea = build_kern_feature_text(font)
         if fea:
             # Count kern pairs before migration
-            kern_count = len([line for line in fea.split("\n") if line.strip().startswith("pos")])
+            kern_count = len(
+                [line for line in fea.split("\n") if line.strip().startswith("pos")]
+            )
             ok, msg = apply_feature_text(font, fea)
             if ok:
                 messages.append(f"Migrated {kern_count} kern pairs to GPOS")
@@ -480,4 +482,3 @@ def enrich_font(
         changed = changed or ok
 
     return changed, messages
-

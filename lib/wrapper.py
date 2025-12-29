@@ -328,18 +328,23 @@ class WrapperExecutor:
                 # Categorize enrichment messages
                 enrichment_summary = []
                 for msg in e_msgs:
-                    if "Migrated" in msg or "Added" in msg or "Enriched" in msg or "built" in msg.lower():
+                    if (
+                        "Migrated" in msg
+                        or "Added" in msg
+                        or "Enriched" in msg
+                        or "built" in msg.lower()
+                    ):
                         enrichment_summary.append(msg)
                         result.add_success(msg)
                     elif "failed" in msg.lower() or "error" in msg.lower():
                         result.add_warning(msg)
                     else:
                         result.add_info(msg)
-                
+
                 if enrichment_summary:
                     result.add_success(
                         "Enrichment completed",
-                        f"Applied: {', '.join(enrichment_summary)}"
+                        f"Applied: {', '.join(enrichment_summary)}",
                     )
             else:
                 result.add_info("Enrichment attempted but no changes made")
@@ -347,4 +352,3 @@ class WrapperExecutor:
                     result.add_info(msg)
 
         return result, has_changes
-

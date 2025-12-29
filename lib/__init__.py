@@ -47,4 +47,3 @@ from lib.feature_extraction import (
     ExistingSubstitutionExtractor,
 )
 from lib.feature_generation import FeatureCodeGenerator
-

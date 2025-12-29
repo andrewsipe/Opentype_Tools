@@ -386,4 +386,3 @@ class FontValidator:
         except Exception:
             pass
         return inv
-

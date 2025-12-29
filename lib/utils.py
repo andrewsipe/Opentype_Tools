@@ -98,4 +98,3 @@ def validate_font_file(path: Path) -> bool:
 
     valid_extensions = {".ttf", ".otf", ".woff", ".woff2"}
     return path.suffix.lower() in valid_extensions
-

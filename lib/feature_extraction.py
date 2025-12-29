@@ -209,7 +209,9 @@ class FeatureExtractor:
                     pass
                 # Format 1: pair adjustment
                 elif hasattr(subtable, "PairSets"):
-                    for first_glyph, pair_set in zip(coverage.glyphs, subtable.PairSets):
+                    for first_glyph, pair_set in zip(
+                        coverage.glyphs, subtable.PairSets
+                    ):
                         if pair_set:
                             for pair_value in pair_set.PairValue:
                                 second_glyph = pair_value.SecondGlyph
@@ -268,4 +270,3 @@ class ExistingSubstitutionExtractor:
                                 result["ligatures"].add(components)
 
         return result
-

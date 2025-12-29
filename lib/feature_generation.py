@@ -363,4 +363,3 @@ class FeatureCodeGenerator:
     def generate_calt_feature(substitutions: List[Tuple[str, str]]) -> str:
         """Generate calt (contextual alternates) feature code."""
         return FeatureCodeGenerator.generate_substitution_feature("calt", substitutions)
-
