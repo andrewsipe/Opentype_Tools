@@ -8,50 +8,58 @@ import shutil
 from pathlib import Path
 from typing import List
 
-# Add project root to path for FontCore imports
-import sys
+from fontTools.ttLib import TTFont
 
-_project_root = Path(__file__).parent
-while (
-    not (_project_root / "FontCore").exists() and _project_root.parent != _project_root
-):
-    _project_root = _project_root.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+from .fontcore_path import ensure_fontcore_on_path
+
+ensure_fontcore_on_path(Path(__file__).resolve().parent.parent)
 
 from FontCore.core_file_collector import collect_font_files as core_collect_font_files  # noqa: E402
 
 
+# Subfolder beside the font; numbered copies stay out of the main folder.
+_FONT_BACKUPS_DIRNAME = "backups"
+
+
 def backup_font(font_path: Path) -> Path:
     """
-    Create backup of font file with tilde counter format.
+    Copy the font into a ``backups`` directory next to the source file.
 
-    Uses format: FontName~001.ttf, FontName~002.ttf, etc.
-    This makes duplicates easier to search for in macOS since hyphens
-    are treated as NOT operators in search.
+    Names use ``Stem_001.ext``, ``Stem_002.ext``, … so originals in the font folder stay clean.
 
     Args:
         font_path: Path to font file to backup
 
     Returns:
-        Path to backup file
+        Path to the copied backup file
     """
+    font_path = Path(font_path)
     stem = font_path.stem
     suffix = font_path.suffix
-    parent = font_path.parent
+    backup_root = font_path.parent / _FONT_BACKUPS_DIRNAME
+    backup_root.mkdir(parents=True, exist_ok=True)
 
-    # Find next available counter
     counter = 1
     while True:
-        backup_name = f"{stem}~{counter:03d}{suffix}"
-        backup_path = parent / backup_name
+        backup_path = backup_root / f"{stem}_{counter:03d}{suffix}"
         if not backup_path.exists():
             break
         counter += 1
 
-    # Create backup
     shutil.copy2(font_path, backup_path)
     return backup_path
+
+
+def atomic_ttfont_save(font: TTFont, font_path: Path) -> None:
+    """
+    Save font to ``font_path`` via a sibling ``*.tmp`` file and atomic replace.
+
+    Avoids overwriting the destination with a truncated file if save is interrupted.
+    """
+    dest = Path(font_path)
+    tmp_path = dest.parent / (dest.name + ".tmp")
+    font.save(tmp_path)
+    tmp_path.replace(dest)
 
 
 def collect_font_files(paths: List[str], recursive: bool = False) -> List[Path]:

@@ -9,17 +9,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import sys
+from .fontcore_path import ensure_fontcore_on_path
 
-# Add project root to path for FontCore imports (works for root and subdirectory scripts)
-# ruff: noqa: E402
-_project_root = Path(__file__).parent
-while (
-    not (_project_root / "FontCore").exists() and _project_root.parent != _project_root
-):
-    _project_root = _project_root.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+ensure_fontcore_on_path(Path(__file__).resolve().parent.parent)
 
 import FontCore.core_console_styles as cs  # noqa: E402
 
@@ -57,6 +49,8 @@ class OperationResult:
     success: bool = True
     messages: List[ResultMessage] = field(default_factory=list)
     data: Optional[Any] = None
+    #: Stable, user-facing summaries of applied changes (for CLI aggregation; avoids parsing message strings).
+    changelog: List[str] = field(default_factory=list)
 
     def add_message(
         self,
@@ -89,6 +83,12 @@ class OperationResult:
         """Add a critical error message."""
         self.add_message(ResultLevel.CRITICAL, message, details)
         self.success = False
+
+    def record_change(self, line: str):
+        """Record a substantive change summary for display."""
+        stripped = line.strip()
+        if stripped and stripped not in self.changelog:
+            self.changelog.append(stripped)
 
     def has_errors(self) -> bool:
         """Check if result has any errors."""

@@ -7,21 +7,14 @@ by some font processors and prevents validation warnings.
 Uses direct fontTools API manipulation instead of TTX conversion for reliability.
 """
 
+from pathlib import Path
 from typing import Tuple
 
 from fontTools.ttLib import TTFont
 
-# Add project root to path for FontCore imports
-import sys
-from pathlib import Path
+from .fontcore_path import ensure_fontcore_on_path
 
-_project_root = Path(__file__).parent
-while (
-    not (_project_root / "FontCore").exists() and _project_root.parent != _project_root
-):
-    _project_root = _project_root.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+ensure_fontcore_on_path(Path(__file__).resolve().parent.parent)
 
 import FontCore.core_console_styles as cs  # noqa: E402
 
@@ -90,78 +83,78 @@ def process_lookup(font: TTFont, lookup) -> int:
         return sorted_count
 
     for subtable in lookup.SubTable:
-        # Sort main Coverage
-        if hasattr(subtable, "Coverage"):
-            if sort_coverage(font, subtable.Coverage):
+        cov = getattr(subtable, "Coverage", None)
+        pair_sets = getattr(subtable, "PairSet", None)
+        lig_keys = getattr(subtable, "ligatures", None)
+
+        # PairPos / LigSubst: capture pre-sort glyph order once, sort once, remap parallel arrays / dict keys
+        if (
+            cov is not None
+            and hasattr(cov, "glyphs")
+            and cov.glyphs
+            and pair_sets is not None
+        ):
+            try:
+                old_glyphs = list(cov.glyphs)
+                if sort_coverage(font, cov):
+                    sorted_count += 1
+                new_glyphs = cov.glyphs
+                old_to_new = {}
+                for old_idx, glyph in enumerate(old_glyphs):
+                    if glyph in new_glyphs:
+                        new_idx = new_glyphs.index(glyph)
+                        old_to_new[old_idx] = new_idx
+                if (
+                    pair_sets
+                    and len(old_to_new) == len(old_glyphs)
+                    and len(old_to_new) == len(new_glyphs)
+                ):
+                    old_pairset = subtable.PairSet[:]
+                    new_pairset = [None] * len(old_pairset)
+                    for old_idx, new_idx in old_to_new.items():
+                        if old_idx < len(old_pairset):
+                            new_pairset[new_idx] = old_pairset[old_idx]
+                    if None not in new_pairset:
+                        subtable.PairSet = new_pairset
+            except (AttributeError, TypeError, ValueError):
+                pass
+        elif (
+            cov is not None and hasattr(cov, "glyphs") and cov.glyphs and lig_keys is not None
+        ):
+            try:
+                old_glyphs = list(cov.glyphs)
+                if sort_coverage(font, cov):
+                    sorted_count += 1
+                new_glyphs = cov.glyphs
+                old_ligatures = subtable.ligatures.copy()
+                new_ligatures = {}
+                for glyph in new_glyphs:
+                    if glyph in old_ligatures:
+                        new_ligatures[glyph] = old_ligatures[glyph]
+                subtable.ligatures = new_ligatures
+            except (AttributeError, TypeError):
+                pass
+        elif cov is not None:
+            if sort_coverage(font, cov):
                 sorted_count += 1
 
-        # Handle different subtable types
         if hasattr(subtable, "ClassDef"):
             sort_class_def(font, subtable.ClassDef)
 
         if hasattr(subtable, "BacktrackCoverage"):
-            for cov in subtable.BacktrackCoverage:
-                if sort_coverage(font, cov):
+            for c in subtable.BacktrackCoverage:
+                if sort_coverage(font, c):
                     sorted_count += 1
 
         if hasattr(subtable, "InputCoverage"):
-            for cov in subtable.InputCoverage:
-                if sort_coverage(font, cov):
+            for c in subtable.InputCoverage:
+                if sort_coverage(font, c):
                     sorted_count += 1
 
         if hasattr(subtable, "LookAheadCoverage"):
-            for cov in subtable.LookAheadCoverage:
-                if sort_coverage(font, cov):
+            for c in subtable.LookAheadCoverage:
+                if sort_coverage(font, c):
                     sorted_count += 1
-
-        # PairPos specific - reorder PairSet to match sorted Coverage
-        if hasattr(subtable, "PairSet"):
-            try:
-                if hasattr(subtable.Coverage, "glyphs") and subtable.Coverage.glyphs:
-                    # Need to reorder PairSet to match sorted Coverage
-                    old_glyphs = list(subtable.Coverage.glyphs)
-                    if sort_coverage(font, subtable.Coverage):
-                        sorted_count += 1
-                    new_glyphs = subtable.Coverage.glyphs
-
-                    # Create mapping from old position to new position
-                    old_to_new = {}
-                    for old_idx, glyph in enumerate(old_glyphs):
-                        if glyph in new_glyphs:
-                            new_idx = new_glyphs.index(glyph)
-                            old_to_new[old_idx] = new_idx
-
-                    # Reorder PairSet array
-                    if subtable.PairSet and len(old_to_new) == len(old_glyphs):
-                        old_pairset = subtable.PairSet[:]
-                        new_pairset = [None] * len(old_pairset)
-                        for old_idx, new_idx in old_to_new.items():
-                            if old_idx < len(old_pairset):
-                                new_pairset[new_idx] = old_pairset[old_idx]
-
-                        # Validate no None values remain
-                        if None not in new_pairset:
-                            subtable.PairSet = new_pairset
-            except (AttributeError, TypeError, ValueError):
-                pass
-
-        # LigatureSubst specific - reorder ligature sets
-        if hasattr(subtable, "ligatures"):
-            try:
-                if hasattr(subtable.Coverage, "glyphs") and subtable.Coverage.glyphs:
-                    old_glyphs = list(subtable.Coverage.glyphs)
-                    if sort_coverage(font, subtable.Coverage):
-                        sorted_count += 1
-                    new_glyphs = subtable.Coverage.glyphs
-
-                    old_ligatures = subtable.ligatures.copy()
-                    new_ligatures = {}
-                    for glyph in new_glyphs:
-                        if glyph in old_ligatures:
-                            new_ligatures[glyph] = old_ligatures[glyph]
-                    subtable.ligatures = new_ligatures
-            except (AttributeError, TypeError):
-                pass
 
     return sorted_count
 

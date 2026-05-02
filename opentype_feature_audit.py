@@ -13,14 +13,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Set
 
-# Add project root to path for FontCore imports
-_project_root = Path(__file__).parent
-while (
-    not (_project_root / "FontCore").exists() and _project_root.parent != _project_root
-):
-    _project_root = _project_root.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+_TOOLS_DIR = Path(__file__).resolve().parent
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
+
+from lib.fontcore_path import ensure_fontcore_on_path  # noqa: E402
+
+ensure_fontcore_on_path(_TOOLS_DIR)
 
 import FontCore.core_console_styles as cs  # noqa: E402
 from fontTools.ttLib import TTFont  # noqa: E402
@@ -458,58 +457,54 @@ def main():
         ).emit()
 
         try:
-            font = TTFont(font_path, lazy=False)
+            with TTFont(font_path, lazy=False) as font:
+                extractor = FeatureExtractor(font)
+                detector = UnifiedGlyphDetector(font)
+                existing_extractor = ExistingSubstitutionExtractor(font)
 
-            # Initialize extractors and detector
-            extractor = FeatureExtractor(font)
-            detector = UnifiedGlyphDetector(font)
-            existing_extractor = ExistingSubstitutionExtractor(font)
+                if output_format == "json":
+                    audit_data = generate_audit_json(
+                        font, extractor, detector, existing_extractor
+                    )
+                    audit_data["font"] = str(font_path)
 
-            if output_format == "json":
-                audit_data = generate_audit_json(
-                    font, extractor, detector, existing_extractor
-                )
-                audit_data["font"] = str(font_path)
+                    if len(font_files) > 1:
+                        json_path = output_path.parent / f"{font_path.stem}_audit.json"
+                    else:
+                        json_path = output_path
 
-                # For multiple fonts, append to list or create separate files
-                if len(font_files) > 1:
-                    json_path = output_path.parent / f"{font_path.stem}_audit.json"
-                else:
-                    json_path = output_path
+                    with open(json_path, "w") as f:
+                        json.dump(audit_data, f, indent=2)
 
-                with open(json_path, "w") as f:
-                    json.dump(audit_data, f, indent=2)
-
-                cs.StatusIndicator("success").add_message(
-                    f"Exported JSON audit to {json_path.name}"
-                ).emit()
-
-            else:  # fea format
-                fea_content = generate_audit_fea(
-                    font,
-                    extractor,
-                    detector,
-                    existing_extractor,
-                    suggest=args.suggest,
-                )
-
-                with open(output_path, "w", encoding="utf-8") as f:
-                    f.write(fea_content)
-
-                cs.StatusIndicator("success").add_message(
-                    f"Generated .fea file: {output_path.name}"
-                ).emit()
-
-                if args.verbose:
-                    existing_tags = get_existing_feature_tags(font)
-                    detected = detector.get_features()
-                    cs.StatusIndicator("info").add_message(
-                        f"Found {len(existing_tags)} existing features, "
-                        f"{sum(len(v) if isinstance(v, list) else 1 for v in detected.values() if v)} detected patterns"
+                    cs.StatusIndicator("success").add_message(
+                        f"Exported JSON audit to {json_path.name}"
                     ).emit()
 
-            font.close()
-            success_count += 1
+                else:
+                    fea_content = generate_audit_fea(
+                        font,
+                        extractor,
+                        detector,
+                        existing_extractor,
+                        suggest=args.suggest,
+                    )
+
+                    with open(output_path, "w", encoding="utf-8") as f:
+                        f.write(fea_content)
+
+                    cs.StatusIndicator("success").add_message(
+                        f"Generated .fea file: {output_path.name}"
+                    ).emit()
+
+                    if args.verbose:
+                        existing_tags = get_existing_feature_tags(font)
+                        detected = detector.get_features()
+                        cs.StatusIndicator("info").add_message(
+                            f"Found {len(existing_tags)} existing features, "
+                            f"{sum(len(v) if isinstance(v, list) else 1 for v in detected.values() if v)} detected patterns"
+                        ).emit()
+
+                success_count += 1
 
         except Exception as e:
             cs.StatusIndicator("error").add_message(
@@ -519,11 +514,9 @@ def main():
 
         cs.emit("")
 
-    # Summary
-    if len(font_files) > 1:
-        cs.StatusIndicator("success").add_message(
-            "Processing Complete"
-        ).with_summary_block(updated=success_count, errors=error_count).emit()
+    cs.StatusIndicator("success").add_message(
+        "Processing Complete"
+    ).with_summary_block(updated=success_count, errors=error_count).emit()
 
     return 0 if error_count == 0 else 1
 

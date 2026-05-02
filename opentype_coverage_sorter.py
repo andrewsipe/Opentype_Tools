@@ -12,20 +12,19 @@ import sys
 import warnings
 from pathlib import Path
 
-# Add project root to path for FontCore imports
-_project_root = Path(__file__).parent
-while (
-    not (_project_root / "FontCore").exists() and _project_root.parent != _project_root
-):
-    _project_root = _project_root.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+_TOOLS_DIR = Path(__file__).resolve().parent
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
+
+from lib.fontcore_path import ensure_fontcore_on_path  # noqa: E402
+
+ensure_fontcore_on_path(_TOOLS_DIR)
 
 import FontCore.core_console_styles as cs  # noqa: E402
 from fontTools.ttLib import TTFont  # noqa: E402
 
 from lib.coverage import sort_coverage_tables_in_font  # noqa: E402
-from lib.utils import collect_font_files  # noqa: E402
+from lib.utils import atomic_ttfont_save, collect_font_files  # noqa: E402
 
 # Suppress noisy fontTools warnings about coverage sorting
 # Must be after fontTools imports
@@ -89,74 +88,65 @@ def main():
         ).emit()
 
         try:
-            font = TTFont(font_path, lazy=False)
-
-            try:
-                if args.dry_run:
-                    # For dry-run, we still need to check if sorting is needed
-                    # We'll do a quick check by sorting and seeing if anything changed
-                    # (This is a bit inefficient but necessary for accurate dry-run)
-                    total, sorted_count = sort_coverage_tables_in_font(
-                        font, verbose=args.verbose
-                    )
-                    if sorted_count > 0:
-                        cs.StatusIndicator("info").add_message(
-                            f"Would sort {sorted_count} of {total} Coverage table(s)"
-                        ).emit()
-                    elif total > 0:
-                        cs.StatusIndicator("unchanged").add_message(
-                            f"All {total} Coverage table(s) already sorted (no changes needed)"
-                        ).emit()
-                    else:
-                        cs.StatusIndicator("warning").add_message(
-                            "No Coverage tables found (font has no GSUB/GPOS/GDEF tables)"
-                        ).emit()
-                else:
-                    total, sorted_count = sort_coverage_tables_in_font(
-                        font, verbose=args.verbose
-                    )
-                    total_coverage += total
-                    total_sorted += sorted_count
-
-                    if total > 0:
-                        # Save when coverage tables exist
-                        try:
-                            font.save(font_path)
-                            if sorted_count > 0:
-                                cs.StatusIndicator("success").add_message(
-                                    f"Sorted {sorted_count} of {total} Coverage table(s)"
-                                ).emit()
-                                files_sorted += 1
-                            else:
-                                cs.StatusIndicator("unchanged").add_message(
-                                    f"All {total} Coverage table(s) already sorted (no changes needed)"
-                                ).emit()
-                                files_already_sorted += 1
-                        except Exception as save_error:
-                            cs.StatusIndicator("error").add_message(
-                                f"Failed to save font after sorting: {save_error}"
+            with TTFont(font_path, lazy=False) as font:
+                try:
+                    if args.dry_run:
+                        total, sorted_count = sort_coverage_tables_in_font(
+                            font, verbose=args.verbose
+                        )
+                        if sorted_count > 0:
+                            cs.StatusIndicator("info").add_message(
+                                f"Would sort {sorted_count} of {total} Coverage table(s)"
                             ).emit()
-                            error_count += 1
+                        elif total > 0:
+                            cs.StatusIndicator("unchanged").add_message(
+                                f"All {total} Coverage table(s) already sorted (no changes needed)"
+                            ).emit()
+                        else:
+                            cs.StatusIndicator("warning").add_message(
+                                "No Coverage tables found (font has no GSUB/GPOS/GDEF tables)"
+                            ).emit()
                     else:
-                        cs.StatusIndicator("warning").add_message(
-                            "No Coverage tables found (font has no GSUB/GPOS/GDEF tables)"
-                        ).emit()
-                        files_no_coverage += 1
+                        total, sorted_count = sort_coverage_tables_in_font(
+                            font, verbose=args.verbose
+                        )
+                        total_coverage += total
+                        total_sorted += sorted_count
 
-            except ValueError as e:
-                # Specific error from sort_coverage_tables_in_font (ttx not found, etc.)
-                cs.StatusIndicator("error").add_message(
-                    f"Failed to sort Coverage tables: {e}"
-                ).emit()
-                error_count += 1
-            except Exception as sort_error:
-                # Other unexpected errors during sorting
-                cs.StatusIndicator("error").add_message(
-                    f"Unexpected error during sorting: {sort_error}"
-                ).emit()
-                error_count += 1
+                        if total > 0:
+                            try:
+                                if sorted_count > 0:
+                                    atomic_ttfont_save(font, font_path)
+                                    cs.StatusIndicator("success").add_message(
+                                        f"Sorted {sorted_count} of {total} Coverage table(s)"
+                                    ).emit()
+                                    files_sorted += 1
+                                else:
+                                    cs.StatusIndicator("unchanged").add_message(
+                                        f"All {total} Coverage table(s) already sorted (no changes needed)"
+                                    ).emit()
+                                    files_already_sorted += 1
+                            except Exception as save_error:
+                                cs.StatusIndicator("error").add_message(
+                                    f"Failed to save font after sorting: {save_error}"
+                                ).emit()
+                                error_count += 1
+                        else:
+                            cs.StatusIndicator("warning").add_message(
+                                "No Coverage tables found (font has no GSUB/GPOS/GDEF tables)"
+                            ).emit()
+                            files_no_coverage += 1
 
-            font.close()
+                except ValueError as e:
+                    cs.StatusIndicator("error").add_message(
+                        f"Failed to sort Coverage tables: {e}"
+                    ).emit()
+                    error_count += 1
+                except Exception as sort_error:
+                    cs.StatusIndicator("error").add_message(
+                        f"Unexpected error during sorting: {sort_error}"
+                    ).emit()
+                    error_count += 1
 
         except Exception as e:
             cs.StatusIndicator("error").add_message(
@@ -166,35 +156,31 @@ def main():
 
         cs.emit("")
 
-    # Summary
-    if len(font_files) > 1:
-        # Build summary with indented statistics using StatusIndicator
-        # DRY prefix will be added automatically if dry_run=True
-        summary = cs.StatusIndicator("success", dry_run=args.dry_run).add_message(
-            "Processing complete"
-        )
+    summary = cs.StatusIndicator("success", dry_run=args.dry_run).add_message(
+        "Processing complete"
+    )
 
-        summary.add_item(f"Files analyzed: {len(font_files)}")
+    summary.add_item(f"Files analyzed: {len(font_files)}")
 
-        if files_sorted > 0:
-            summary.add_item(f"Files sorted: {files_sorted}")
+    if files_sorted > 0:
+        summary.add_item(f"Files sorted: {files_sorted}")
 
-        if files_already_sorted > 0:
-            summary.add_item(f"Files already sorted: {files_already_sorted}")
+    if files_already_sorted > 0:
+        summary.add_item(f"Files already sorted: {files_already_sorted}")
 
-        if files_no_coverage > 0:
-            summary.add_item(f"Files with no coverage: {files_no_coverage}")
+    if files_no_coverage > 0:
+        summary.add_item(f"Files with no coverage: {files_no_coverage}")
 
-        if error_count > 0:
-            summary.add_item(f"Errors: {cs.fmt_count(error_count)}")
+    if error_count > 0:
+        summary.add_item(f"Errors: {cs.fmt_count(error_count)}")
 
-        if total_coverage > 0:
-            summary.add_indent()  # Add blank line before coverage stats
-            summary.add_item(f"Total Coverage tables: {total_coverage}")
-            if total_sorted > 0:
-                summary.add_item(f"Coverage tables sorted: {total_sorted}")
+    if total_coverage > 0:
+        summary.add_indent()
+        summary.add_item(f"Total Coverage tables: {total_coverage}")
+        if total_sorted > 0:
+            summary.add_item(f"Coverage tables sorted: {total_sorted}")
 
-        summary.emit()
+    summary.emit()
 
     return 0 if error_count == 0 else 1
 

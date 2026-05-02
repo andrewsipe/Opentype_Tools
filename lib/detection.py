@@ -8,7 +8,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from fontTools.agl import toUnicode
 from fontTools.ttLib import TTFont
 
 from .config import CONFIG
@@ -56,7 +55,8 @@ class UnifiedGlyphDetector:
     SS_PATTERN = re.compile(r"^(.+)\.ss(\d{2})$")
     SC_PATTERN = re.compile(r"^(.+)\.(sc|smallcap)$")
     SWSH_PATTERN = re.compile(r"^(.+)\.(swsh|swash)$")
-    CALT_PATTERN = re.compile(r"^(.+)\.(calt|alt)(\d+)?$")
+    # Only *.calt*. Plain *.alt* is classified as salt (see _check_stylistic_alternate).
+    CALT_PATTERN = re.compile(r"^(.+)\.calt(\d+)?$")
     DLIG_PATTERN = re.compile(r"^(.+)\.dlig$")
 
     FIGURE_SUFFIXES = {
@@ -124,25 +124,8 @@ class UnifiedGlyphDetector:
 
         if "_" in base:
             parts = base.split("_")
-        elif len(base) == 2 and all(ch.isalpha() for ch in base):
-            part1, part2 = base[0], base[1]
-
-            # Check if this is a precomposed Unicode ligature
-            try:
-                uni = toUnicode(base)
-                if uni and len(uni) == 1:
-                    cp = ord(uni)
-                    name = unicodedata.name(chr(cp), "")
-                    if "LIGATURE" in name:
-                        return []
-            except Exception:
-                pass
-
-            if part1 not in self.glyph_order or part2 not in self.glyph_order:
-                return []
-
-            parts = [part1, part2]
         else:
+            # No underscore-separated components; ignore (avoids bogus "at" -> a+t ligatures).
             return []
 
         resolved = []

@@ -11,14 +11,13 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-# Add project root to path for FontCore imports
-_project_root = Path(__file__).parent
-while (
-    not (_project_root / "FontCore").exists() and _project_root.parent != _project_root
-):
-    _project_root = _project_root.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+_TOOLS_DIR = Path(__file__).resolve().parent
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
+
+from lib.fontcore_path import ensure_fontcore_on_path  # noqa: E402
+
+ensure_fontcore_on_path(_TOOLS_DIR)
 
 import FontCore.core_console_styles as cs  # noqa: E402
 from fontTools.ttLib import TTFont  # noqa: E402
@@ -181,18 +180,18 @@ def main():
     parser.add_argument(
         "--auto-fix",
         action="store_true",
-        help="Auto-fix high confidence issues (0.75+)",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--min-confidence",
         type=float,
         default=0.75,
-        help="Minimum confidence for auto-fix (default: 0.75)",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--interactive",
         action="store_true",
-        help="Interactive mode (confirm each change)",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--export",
@@ -203,12 +202,12 @@ def main():
         "--import",
         dest="import_file",
         type=str,
-        help="Import labels from JSON file",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--apply",
         action="store_true",
-        help="Apply changes from imported JSON",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--verbose",
@@ -234,22 +233,21 @@ def main():
     # Handle export mode
     if args.export and len(font_files) == 1:
         try:
-            font = TTFont(font_files[0], lazy=False)
-            labeler = SSLabeler(font)
-            issues = audit_ss_features(font, labeler)
+            with TTFont(font_files[0], lazy=False) as font:
+                labeler = SSLabeler(font)
+                issues = audit_ss_features(font, labeler)
 
-            export_data = {
-                "font": str(font_files[0]),
-                "issues": issues,
-            }
+                export_data = {
+                    "font": str(font_files[0]),
+                    "issues": issues,
+                }
 
-            with open(args.export, "w") as f:
-                json.dump(export_data, f, indent=2)
+                with open(args.export, "w") as f:
+                    json.dump(export_data, f, indent=2)
 
             cs.StatusIndicator("success").add_message(
                 f"Exported suggestions to {args.export}"
             ).emit()
-            font.close()
             return 0
         except Exception as e:
             cs.StatusIndicator("error").add_message(f"Export failed: {e}").emit()
@@ -272,78 +270,73 @@ def main():
         ).emit()
 
         try:
-            font = TTFont(font_path, lazy=False)
-            labeler = SSLabeler(font)
-            issues = audit_ss_features(font, labeler)
+            with TTFont(font_path, lazy=False) as font:
+                labeler = SSLabeler(font)
+                issues = audit_ss_features(font, labeler)
 
-            if not issues:
-                cs.StatusIndicator("info").add_message(
-                    "No ss01-ss20 features found"
-                ).emit()
-                font.close()
-                success_count += 1
-                cs.emit("")
-                continue
-
-            # Display audit results
-            for issue in issues:
-                ss_num = issue["ss_num"]
-                glyph_count = issue["glyph_count"]
-                suggested = issue["suggested_label"]
-                confidence = issue["confidence"]
-
-                # Build status indicator with details
-                indicator = cs.StatusIndicator("info").add_message(
-                    f"ss{ss_num:02d}: {cs.fmt_count(glyph_count)} glyphs → '{suggested}' ({confidence:.2f})"
-                )
-
-                # Add status details as items
-                if issue["missing_params"]:
-                    indicator.add_item("No FeatureParams", style="dim red")
-                if issue["missing_uinameid"]:
-                    indicator.add_item("No UINameID", style="dim red")
-                if issue["missing_label"]:
-                    indicator.add_item("No label", style="dim red")
-                if issue["generic_label"]:
-                    indicator.add_item("Generic label", style="dim yellow")
-                if not any(
-                    [
-                        issue["missing_params"],
-                        issue["missing_uinameid"],
-                        issue["missing_label"],
-                        issue["generic_label"],
-                    ]
-                ):
-                    indicator.add_item("OK", style="dim green")
-
-                indicator.emit()
-
-                if args.verbose and issue["glyphs"]:
-                    sample_glyphs = ", ".join(
-                        [f"{base} → {alt}" for base, alt in issue["glyphs"][:5]]
-                    )
+                if not issues:
                     cs.StatusIndicator("info").add_message(
-                        f"  Sample: {sample_glyphs}"
+                        "No ss01-ss20 features found"
                     ).emit()
+                    success_count += 1
+                    cs.emit("")
+                    continue
 
-            # Auto-fix mode
-            if args.auto_fix:
-                changes_made = False
                 for issue in issues:
-                    if issue["confidence"] >= args.min_confidence:
-                        # TODO: Implement actual fixing
+                    ss_num = issue["ss_num"]
+                    glyph_count = issue["glyph_count"]
+                    suggested = issue["suggested_label"]
+                    confidence = issue["confidence"]
+
+                    indicator = cs.StatusIndicator("info").add_message(
+                        f"ss{ss_num:02d}: {cs.fmt_count(glyph_count)} glyphs → "
+                        f"'{suggested}' ({confidence:.2f})"
+                    )
+
+                    if issue["missing_params"]:
+                        indicator.add_item("No FeatureParams", style="dim red")
+                    if issue["missing_uinameid"]:
+                        indicator.add_item("No UINameID", style="dim red")
+                    if issue["missing_label"]:
+                        indicator.add_item("No label", style="dim red")
+                    if issue["generic_label"]:
+                        indicator.add_item("Generic label", style="dim yellow")
+                    if not any(
+                        [
+                            issue["missing_params"],
+                            issue["missing_uinameid"],
+                            issue["missing_label"],
+                            issue["generic_label"],
+                        ]
+                    ):
+                        indicator.add_item("OK", style="dim green")
+
+                    indicator.emit()
+
+                    if args.verbose and issue["glyphs"]:
+                        sample_glyphs = ", ".join(
+                            [f"{base} → {alt}" for base, alt in issue["glyphs"][:5]]
+                        )
                         cs.StatusIndicator("info").add_message(
-                            f"Would fix ss{issue['ss_num']:02d} (confidence {issue['confidence']:.2f})"
+                            f"  Sample: {sample_glyphs}"
                         ).emit()
-                        changes_made = True
 
-                if changes_made:
-                    cs.StatusIndicator("warning").add_message(
-                        "Auto-fix not yet fully implemented"
-                    ).emit()
+                if args.auto_fix:
+                    changes_made = False
+                    for issue in issues:
+                        if issue["confidence"] >= args.min_confidence:
+                            cs.StatusIndicator("info").add_message(
+                                f"Would fix ss{issue['ss_num']:02d} "
+                                f"(confidence {issue['confidence']:.2f})"
+                            ).emit()
+                            changes_made = True
 
-            font.close()
-            success_count += 1
+                    if changes_made:
+                        cs.StatusIndicator("warning").add_message(
+                            "Auto-fix not yet fully implemented"
+                        ).emit()
+
+                success_count += 1
 
         except Exception as e:
             cs.StatusIndicator("error").add_message(
@@ -353,11 +346,9 @@ def main():
 
         cs.emit("")
 
-    # Summary
-    if len(font_files) > 1:
-        cs.StatusIndicator("success").add_message(
-            "Processing Complete"
-        ).with_summary_block(updated=success_count, errors=error_count).emit()
+    cs.StatusIndicator("success").add_message(
+        "Processing Complete"
+    ).with_summary_block(updated=success_count, errors=error_count).emit()
 
     return 0 if error_count == 0 else 1
 

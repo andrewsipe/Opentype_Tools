@@ -6,6 +6,7 @@ with inferred features like ligatures and kerning.
 """
 
 import unicodedata
+import warnings
 from typing import Dict, List, Optional, Set, Tuple
 
 from fontTools.agl import toUnicode
@@ -14,6 +15,7 @@ from fontTools.ttLib.tables import otTables
 from fontTools.ttLib.tables._c_m_a_p import CmapSubtable
 
 from .config import CONFIG
+from .detection import UnifiedGlyphDetector
 
 # Try to import feaLib
 try:
@@ -95,18 +97,16 @@ def create_cmap(
 
     need_u32 = any(cp > 0xFFFF for cp in derived)
 
-    if "cmap" not in font or overwrite_unicode:
+    # Same predicate as branch below — drives user message (don't rely on
+    # "cmap" in font after we assign font["cmap"] later).
+    using_new_cmap_shell = ("cmap" not in font) or overwrite_unicode
+
+    if using_new_cmap_shell:
         cmap_table = newTable("cmap")
         cmap_table.tableVersion = 0
         cmap_table.tables = []
     else:
         cmap_table = font["cmap"]
-        if overwrite_unicode:
-            cmap_table.tables = [
-                st
-                for st in cmap_table.tables
-                if not (st.platformID == 3 and st.platEncID in (1, 10))
-            ]
 
     bmp_map = {cp: g for cp, g in derived.items() if cp <= 0xFFFF}
     if bmp_map:
@@ -125,16 +125,14 @@ def create_cmap(
         st12.cmap = derived
         cmap_table.tables.append(st12)
 
+    fmt = "format 4" + (" + 12" if need_u32 else "")
+    if using_new_cmap_shell:
+        summary = f"Created Unicode cmap ({fmt})"
+    else:
+        summary = f"Added Windows Unicode subtable(s) ({fmt})"
+
     font["cmap"] = cmap_table
-    messages.append(
-        (
-            "Created Unicode cmap (format 4" + (" + 12" if need_u32 else "") + ")"
-            if "cmap" not in font
-            or overwrite_unicode
-            or not _font_has_windows_unicode_cmap(font)
-            else "Added Windows Unicode subtable(s)"
-        )
-    )
+    messages.append(summary)
     return True, messages
 
 
@@ -154,8 +152,8 @@ def create_gdef(font: TTFont, overwrite: bool = False) -> Tuple[bool, str]:
     return True, "Created empty GDEF"
 
 
-def _empty_otl_table(table_cls: type) -> object:
-    """Create empty OTL table structure."""
+def empty_otl_table(table_cls: type) -> object:
+    """Create empty GSUB/GPOS-style OTL table structure (ScriptList, FeatureList, LookupList)."""
     tbl = table_cls()
     tbl.Version = 0x00010000
     sl = otTables.ScriptList()
@@ -178,7 +176,7 @@ def create_gpos(font: TTFont, overwrite: bool = False) -> Tuple[bool, str]:
     if "GPOS" in font and not overwrite:
         return False, "GPOS present; no change"
     gpos = newTable("GPOS")
-    gpos.table = _empty_otl_table(otTables.GPOS)
+    gpos.table = empty_otl_table(otTables.GPOS)
     font["GPOS"] = gpos
     return True, "Created empty GPOS"
 
@@ -188,7 +186,7 @@ def create_gsub(font: TTFont, overwrite: bool = False) -> Tuple[bool, str]:
     if "GSUB" in font and not overwrite:
         return False, "GSUB present; no change"
     gsub = newTable("GSUB")
-    gsub.table = _empty_otl_table(otTables.GSUB)
+    gsub.table = empty_otl_table(otTables.GSUB)
     font["GSUB"] = gsub
     return True, "Created empty GSUB"
 
@@ -237,49 +235,10 @@ def _detect_mark_glyphs(font: TTFont) -> Set[str]:
     return marks
 
 
-def _parse_ligature_components(glyph_name: str, font: TTFont) -> List[str]:
-    """Infer base component glyph names from a ligature glyph name."""
-    base = glyph_name.split(".")[0]
-    if "_" in base:
-        parts = base.split("_")
-    else:
-        if len(base) == 2 and all(ch.isalpha() for ch in base):
-            parts = [base[0], base[1]]
-        else:
-            return []
-
-    best = font.getBestCmap() or {}
-    cp_to_g = best
-
-    resolved: List[str] = []
-    for p in parts:
-        if p.startswith("uni") and len(p) >= 7:
-            hexpart = p[3:7]
-            try:
-                cp = int(hexpart, 16)
-            except Exception:
-                return []
-            gname = cp_to_g.get(cp)
-            if not gname:
-                return []
-            resolved.append(gname)
-        else:
-            if p in font.getGlyphOrder():
-                resolved.append(p)
-            else:
-                return []
-    return resolved if len(resolved) >= 2 else []
-
-
 def infer_ligatures(font: TTFont) -> List[Tuple[List[str], str]]:
     """Return list of ([components...], ligatureGlyphName)."""
-    ligs: List[Tuple[List[str], str]] = []
-    go = set(font.getGlyphOrder())
-    for g in go:
-        comps = _parse_ligature_components(g, font)
-        if comps:
-            ligs.append((comps, g))
-    return ligs
+    detector = UnifiedGlyphDetector(font)
+    return detector.get_features()["liga"]
 
 
 def build_liga_feature_text(font: TTFont, ligs: List[Tuple[List[str], str]]) -> str:
@@ -302,6 +261,7 @@ def build_kern_feature_text(font: TTFont) -> Optional[str]:
         return None
     if not subtables:
         return None
+    glyph_order = set(font.getGlyphOrder())
     rules: List[str] = []
     for st in subtables:
         try:
@@ -318,6 +278,14 @@ def build_kern_feature_text(font: TTFont) -> Optional[str]:
                     except Exception:
                         continue
                 if val == 0:
+                    continue
+                if left_glyph not in glyph_order or right_glyph not in glyph_order:
+                    warnings.warn(
+                        f"kern pair references missing glyph(s): "
+                        f"{left_glyph!r} {right_glyph!r}; skipping",
+                        UserWarning,
+                        stacklevel=2,
+                    )
                     continue
                 rules.append(f"  pos {left_glyph} {right_glyph} {val};")
         except Exception:
@@ -341,7 +309,10 @@ def apply_feature_text(font: TTFont, feature_text: str) -> Tuple[bool, str]:
 
 
 def build_enriched_gdef(
-    font: TTFont, use_classes: bool, add_carets: bool
+    font: TTFont,
+    use_classes: bool,
+    add_carets: bool,
+    ligs: Optional[List[Tuple[List[str], str]]] = None,
 ) -> Tuple[bool, str]:
     """Build enriched GDEF with classes and carets."""
     if not use_classes and not add_carets:
@@ -351,7 +322,8 @@ def build_enriched_gdef(
     carets: Dict[str, List[int]] = {}
 
     marks = _detect_mark_glyphs(font) if use_classes else set()
-    ligs = infer_ligatures(font) if (use_classes or add_carets) else []
+    if ligs is None:
+        ligs = infer_ligatures(font)
     lig_set = {lig for _, lig in ligs}
 
     if use_classes:
@@ -433,10 +405,23 @@ def enrich_font(
     do_gdef_classes: bool,
     do_lig_carets: bool,
     drop_kern_after: bool,
+    liga_list: Optional[List[Tuple[List[str], str]]] = None,
 ) -> Tuple[bool, List[str]]:
-    """Enrich font with inferred features."""
+    """Enrich font with inferred features.
+
+    ``liga_list`` if provided is used for the ``liga`` feature and GDEF ligature classes /
+    carets instead of calling :func:`infer_ligatures` again (keeps planner and executor aligned).
+    """
     changed = False
     messages: List[str] = []
+
+    need_ligs = do_liga or do_gdef_classes or do_lig_carets
+    if liga_list is not None:
+        ligs_resolved: List[Tuple[List[str], str]] = list(liga_list)
+    elif need_ligs:
+        ligs_resolved = infer_ligatures(font)
+    else:
+        ligs_resolved = []
 
     if do_kern_migration:
         fea = build_kern_feature_text(font)
@@ -462,12 +447,13 @@ def enrich_font(
             messages.append("No legacy 'kern' data found")
 
     if do_liga:
-        ligs = infer_ligatures(font)
-        if ligs:
-            fea = build_liga_feature_text(font, ligs)
+        if ligs_resolved:
+            fea = build_liga_feature_text(font, ligs_resolved)
             ok, msg = apply_feature_text(font, fea)
             if ok:
-                messages.append(f"Added {len(ligs)} ligatures to GSUB liga feature")
+                messages.append(
+                    f"Added {len(ligs_resolved)} ligatures to GSUB liga feature"
+                )
             else:
                 messages.append(f"Ligature addition failed: {msg}")
             changed = changed or ok
@@ -476,7 +462,10 @@ def enrich_font(
 
     if do_gdef_classes or do_lig_carets:
         ok, msg = build_enriched_gdef(
-            font, use_classes=do_gdef_classes, add_carets=do_lig_carets
+            font,
+            use_classes=do_gdef_classes,
+            add_carets=do_lig_carets,
+            ligs=ligs_resolved,
         )
         messages.append(msg)
         changed = changed or ok

@@ -114,14 +114,12 @@ class SSLabeler:
         categories = {"Lu": 0, "Ll": 0, "Nd": 0, "Sc": 0, "So": 0}
 
         for base, alternate in glyphs:
-            if base in self.best_cmap.values():
-                # Find codepoint for base glyph
-                for cp, gname in self.best_cmap.items():
-                    if gname == base:
-                        cat = unicodedata.category(chr(cp))
-                        if cat in categories:
-                            categories[cat] += 1
-                        break
+            codepoints = self.detector.inv_cmap.get(base, [])
+            if not codepoints:
+                continue
+            cat = unicodedata.category(chr(min(codepoints)))
+            if cat in categories:
+                categories[cat] += 1
 
         total_categorized = sum(categories.values())
         if total_categorized == 0:
@@ -224,18 +222,15 @@ class SSLabeler:
         types = {"uppercase": 0, "lowercase": 0, "other": 0}
 
         for base, alternate in glyphs:
-            if base in self.best_cmap.values():
-                # Find codepoint for base glyph
-                for cp, gname in self.best_cmap.items():
-                    if gname == base:
-                        cat = unicodedata.category(chr(cp))
-                        if cat == "Lu":
-                            types["uppercase"] += 1
-                        elif cat == "Ll":
-                            types["lowercase"] += 1
-                        else:
-                            types["other"] += 1
-                        break
+            cps = self.detector.inv_cmap.get(base, [])
+            if cps:
+                cat = unicodedata.category(chr(min(cps)))
+                if cat == "Lu":
+                    types["uppercase"] += 1
+                elif cat == "Ll":
+                    types["lowercase"] += 1
+                else:
+                    types["other"] += 1
             else:
                 # Fallback: check if base name suggests case
                 if base and base[0].isupper():

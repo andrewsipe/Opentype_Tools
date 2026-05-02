@@ -6,29 +6,39 @@ Adds OpenType table scaffolding and intelligently migrates legacy data
 without requiring explicit flags. Validates before every operation.
 """
 
+from __future__ import annotations
+
 import argparse
 import sys
 from pathlib import Path
 
-# Add project root to path for FontCore imports
-_project_root = Path(__file__).parent
-while (
-    not (_project_root / "FontCore").exists() and _project_root.parent != _project_root
-):
-    _project_root = _project_root.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+_TOOLS_DIR = Path(__file__).resolve().parent
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
+
+from lib.fontcore_path import ensure_fontcore_on_path  # noqa: E402
+
+ensure_fontcore_on_path(_TOOLS_DIR)
 
 import FontCore.core_console_styles as cs  # noqa: E402
 from fontTools.ttLib import TTFont  # noqa: E402
 
 from lib.coverage import sort_coverage_tables_in_font  # noqa: E402
-from lib.utils import collect_font_files  # noqa: E402
+from lib.utils import atomic_ttfont_save, backup_font, collect_font_files  # noqa: E402
 from lib.validation import FontValidator  # noqa: E402
 from lib.wrapper import WrapperExecutor, WrapperStrategyEngine  # noqa: E402
 
 
-def main():
+def _is_truetype_outline_sfnt(font: TTFont) -> bool:
+    """True if font uses sfnt glyf/TrueType outline (wrapper target); False for ``OTTO``/CFF-only."""
+    reader = getattr(font, "reader", None)
+    if reader is None:
+        return False
+    ver = getattr(reader, "sfntVersion", None)
+    return ver in (b"\x00\x01\x00\x00", b"true")
+
+
+def main() -> int:
     """Main entry point for wrapper CLI."""
     parser = argparse.ArgumentParser(
         description="Convert TrueType fonts to OpenType with intelligent enrichment"
@@ -57,12 +67,17 @@ def main():
     parser.add_argument(
         "--skip-validation",
         action="store_true",
-        help="Skip validation checks (danger mode)",
+        help="Skip destructive validations; disables enrichment (scaffolding only)",
     )
     parser.add_argument(
         "--no-enrich",
         action="store_true",
         help="Only add table scaffolding, no enrichment",
+    )
+    parser.add_argument(
+        "--no-backup",
+        action="store_true",
+        help="Do not save a numbered copy under backups/ before overwriting the original",
     )
     parser.add_argument(
         "--verbose",
@@ -73,7 +88,9 @@ def main():
 
     args = parser.parse_args()
 
-    # Collect font files
+    enrich = not args.no_enrich and not args.skip_validation
+    backup_before_save = not args.no_backup
+
     font_files = collect_font_files(args.fonts, recursive=args.recursive)
 
     if not font_files:
@@ -84,6 +101,11 @@ def main():
         f"Found {len(font_files)} font file(s)"
     ).emit()
     cs.emit("")
+    if args.skip_validation:
+        cs.StatusIndicator("warning").add_message(
+            "Scaffold-only pipeline: destructive overwrite validations skipped; enrichment disabled"
+        ).emit()
+        cs.emit("")
 
     success_count = 0
     error_count = 0
@@ -94,26 +116,31 @@ def main():
         ).emit()
 
         try:
-            font = TTFont(font_path, lazy=False)
+            with TTFont(font_path, lazy=False) as font:
+                if not _is_truetype_outline_sfnt(font):
+                    cs.StatusIndicator("warning").add_message(
+                        "Skipping font (not TrueType-outline sfnt)"
+                    ).with_explanation(
+                        "This wrapper targets fonts with glyf outlines "
+                        "(sfnt \\x00\\x01\\x00\\x00 or ``true``), not OTTO/CFF‑only shells."
+                    ).emit()
+                    success_count += 1
+                    cs.emit("")
+                    continue
 
-            # Build user preferences
-            user_prefs = {
-                "overwrite_cmap": args.overwrite_cmap,
-                "enrich": not args.no_enrich,
-            }
+                user_prefs = {
+                    "overwrite_cmap": args.overwrite_cmap,
+                    "enrich": enrich,
+                    "skip_validation": args.skip_validation,
+                }
 
-            # Validate font (unless skipped)
-            if not args.skip_validation:
                 validator = FontValidator(font)
                 strategy_engine = WrapperStrategyEngine(font, validator)
-
-                # Create plan
                 plan, plan_result = strategy_engine.create_plan(user_prefs)
 
                 if args.verbose:
                     plan_result.emit_all()
                 else:
-                    # Only show errors/warnings in non-verbose mode
                     for msg in plan_result.messages:
                         if msg.level.value in ("error", "warning", "critical"):
                             cs.StatusIndicator(msg.level.value).add_message(
@@ -123,9 +150,8 @@ def main():
                 if not plan_result.success:
                     cs.StatusIndicator("error").add_message(
                         "Validation failed",
-                        "Cannot proceed. Fix issues or use --skip-validation.",
+                        "Cannot proceed. Fix issues or adjust flags.",
                     ).emit()
-                    font.close()
                     error_count += 1
                     cs.emit("")
                     continue
@@ -136,19 +162,19 @@ def main():
                     ).with_explanation(
                         "Font already has complete OpenType tables"
                     ).emit()
-                    font.close()
                     success_count += 1
                     cs.emit("")
                     continue
 
-                # Show enrichment opportunities before execution
                 enrichment_ops = []
                 if plan.can_migrate_kern:
                     enrichment_ops.append(
                         f"Migrate {plan.kern_pair_count} kern pairs to GPOS"
                     )
                 if plan.can_infer_liga:
-                    enrichment_ops.append(f"Add {plan.liga_count} ligatures to GSUB")
+                    enrichment_ops.append(
+                        f"Add {len(plan.liga_ligatures)} ligatures to GSUB"
+                    )
                 if plan.can_enrich_gdef:
                     gdef_details = []
                     if plan.mark_count > 0:
@@ -162,14 +188,11 @@ def main():
                             f"Enrich GDEF with {', '.join(gdef_details)}"
                         )
 
-                # Always show enrichment opportunities, even if none exist
-                # Check if font already has substantial OpenType features
                 has_existing_features = (
                     validator.state.gsub_lookup_count > 0
                     or validator.state.gpos_lookup_count > 0
                 )
 
-                # Build explanation with context about existing features if present
                 explanation_parts = []
                 if has_existing_features:
                     explanation_parts.append(
@@ -178,7 +201,6 @@ def main():
                         "New features will be merged with existing ones."
                     )
 
-                # Add enrichment opportunities or "NONE" if none exist
                 if enrichment_ops:
                     explanation_parts.append(
                         "\n".join(f"  • {op}" for op in enrichment_ops)
@@ -191,23 +213,19 @@ def main():
                 ).with_explanation("\n".join(explanation_parts)).emit()
 
                 if args.dry_run:
-                    # Show preview (DRY prefix will be added automatically)
                     cs.StatusIndicator("preview", dry_run=True).add_message(
                         "Would perform:"
                     ).with_explanation(plan.summarize()).emit()
-                    font.close()
                     success_count += 1
                     cs.emit("")
                     continue
 
-                # Execute plan
                 executor = WrapperExecutor(font, plan)
                 exec_result, has_changes = executor.execute()
 
                 if args.verbose:
                     exec_result.emit_all()
                 else:
-                    # Only show errors/warnings in non-verbose mode
                     for msg in exec_result.messages:
                         if msg.level.value in ("error", "warning", "critical"):
                             cs.StatusIndicator(msg.level.value).add_message(
@@ -215,7 +233,6 @@ def main():
                             ).with_explanation(msg.details).emit()
 
                 if exec_result.success:
-                    # Sort Coverage tables if GSUB/GPOS tables exist
                     coverage_sorted = 0
                     coverage_total = 0
                     if "GSUB" in font or "GPOS" in font:
@@ -230,57 +247,19 @@ def main():
                                 "Font will be saved but Coverage tables may not be sorted"
                             ).emit()
 
-                    # Build unified change summary
-                    changes_made = []
-                    seen_cmap = False
+                    changes_made = list(exec_result.changelog)
 
-                    # Extract changes from execution result
-                    for msg in exec_result.messages:
-                        # Success messages are enrichment operations
-                        if msg.level.value == "success":
-                            # Skip the "Enrichment completed" summary message
-                            if "Enrichment completed" not in msg.message:
-                                # Capture enrichment operations
-                                if any(
-                                    keyword in msg.message
-                                    for keyword in ["Migrated", "Added", "Enriched"]
-                                ):
-                                    changes_made.append(msg.message)
-                        # Info messages include scaffolding operations
-                        elif msg.level.value == "info":
-                            # Check for scaffolding operations - prefer detailed messages
-                            if (
-                                "Created Unicode cmap" in msg.message
-                                or "Added Windows Unicode" in msg.message
-                            ):
-                                if not seen_cmap:
-                                    changes_made.append(msg.message)
-                                    seen_cmap = True
-                            elif any(
-                                keyword in msg.message
-                                for keyword in [
-                                    "Created empty GDEF",
-                                    "Created empty GSUB",
-                                    "Created empty GPOS",
-                                    "Created DSIG stub",
-                                ]
-                            ):
-                                changes_made.append(msg.message)
-
-                    # Add coverage sorting if it happened
                     if coverage_sorted > 0:
                         changes_made.append(
-                            f"Sorted {coverage_sorted} of {coverage_total} Coverage table(s)"
+                            f"Sorted {coverage_sorted} of {coverage_total} "
+                            "Coverage table(s)"
                         )
 
-                    # Update has_changes if coverage was sorted
                     if coverage_sorted > 0:
                         has_changes = True
 
-                    # Filter out any empty strings and show summary only if there are actual changes
                     changes_made = [c for c in changes_made if c and c.strip()]
 
-                    # Show unified change summary only if there are actual changes
                     if has_changes and changes_made:
                         cs.StatusIndicator("updated").add_message(
                             "Changes applied:"
@@ -294,34 +273,24 @@ def main():
                             "Font already has all requested features or enrichment failed"
                         ).emit()
 
-                    # Only save if actual changes were made
                     if has_changes:
-                        font.save(font_path)
+                        if backup_before_save:
+                            backup_path = backup_font(font_path)
+                            rel = backup_path.relative_to(font_path.parent)
+                            cs.StatusIndicator("info").add_message(
+                                f"Created backup: {rel}"
+                            ).emit()
+                        atomic_ttfont_save(font, font_path)
                         cs.StatusIndicator("saved").add_message(
                             f"Saved: {font_path.name}"
                         ).emit()
-                        success_count += 1
-                    else:
-                        success_count += 1
+
+                    success_count += 1
                 else:
                     cs.StatusIndicator("error").add_message(
                         "Wrapper execution failed"
                     ).emit()
                     error_count += 1
-
-            else:
-                # Skip validation mode - just do basic operations
-                cs.StatusIndicator("warning").add_message(
-                    "Validation skipped - proceeding with basic operations"
-                ).emit()
-                # This mode would need a simplified execution path
-                # For now, we'll just warn and skip
-                cs.StatusIndicator("error").add_message(
-                    "--skip-validation mode not fully implemented"
-                ).emit()
-                error_count += 1
-
-            font.close()
 
         except Exception as e:
             cs.StatusIndicator("error").add_message(
@@ -331,11 +300,9 @@ def main():
 
         cs.emit("")
 
-    # Summary
-    if len(font_files) > 1:
-        cs.StatusIndicator("success").add_message(
-            "Processing Complete"
-        ).with_summary_block(updated=success_count, errors=error_count).emit()
+    cs.StatusIndicator("success").add_message(
+        "Processing Complete"
+    ).with_summary_block(updated=success_count, errors=error_count).emit()
 
     return 0 if error_count == 0 else 1
 

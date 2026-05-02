@@ -361,5 +361,9 @@ class FeatureCodeGenerator:
 
     @staticmethod
     def generate_calt_feature(substitutions: List[Tuple[str, str]]) -> str:
-        """Generate calt (contextual alternates) feature code."""
+        """Emit simple one-to-one lookups for ``calt``-tagged glyphs.
+
+        Real contextual alternates need explicit backtrack / lookahead; detection only
+        assigns ``.calt`` suffixes here—plain ``.alt`` variants are routed to ``salt``.
+        """
         return FeatureCodeGenerator.generate_substitution_feature("calt", substitutions)

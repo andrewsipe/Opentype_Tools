@@ -10,7 +10,7 @@ from typing import List, Set, Tuple
 from fontTools.ttLib import TTFont
 
 from .detection import UnifiedGlyphDetector
-from .results import OperationResult, ResultLevel
+from .results import OperationResult
 from .validation import FontValidator
 from .wrapper_helpers import (
     create_cmap,
@@ -36,7 +36,8 @@ class WrapperPlan:
     kern_pair_count: int = 0
 
     can_infer_liga: bool = False
-    liga_count: int = 0
+    # Filtered ligature tuples matching create_plan (comps, ligature_glyph_name).
+    liga_ligatures: List[Tuple[List[str], str]] = field(default_factory=list)
 
     can_enrich_gdef: bool = False
     mark_count: int = 0
@@ -72,7 +73,9 @@ class WrapperPlan:
         if self.can_migrate_kern:
             actions.append(f"Migrate {self.kern_pair_count} kern pairs → GPOS")
         if self.can_infer_liga:
-            actions.append(f"Create liga feature with {self.liga_count} ligatures")
+            actions.append(
+                f"Create liga feature with {len(self.liga_ligatures)} ligatures"
+            )
         if self.can_enrich_gdef:
             details = []
             if self.mark_count > 0:
@@ -165,7 +168,7 @@ class WrapperStrategyEngine:
 
                 if new_ligatures:
                     plan.can_infer_liga = True
-                    plan.liga_count = len(new_ligatures)
+                    plan.liga_ligatures = new_ligatures
                     if len(new_ligatures) < len(ligatures):
                         result.add_info(
                             f"Can add {len(new_ligatures)} ligatures "
@@ -194,21 +197,22 @@ class WrapperStrategyEngine:
                         )
 
         # Validate any destructive operations
-        if user_preferences.get("overwrite_cmap") and self.state.has_unicode_cmap:
-            cmap_result = self.validator.validate_cmap_operation(overwrite=True)
-            result.messages.extend(cmap_result.messages)
-            if cmap_result.has_errors():
-                result.success = False
-
-        # Check for problematic overwrites
-        for table in ["gdef", "gsub", "gpos"]:
-            if user_preferences.get(f"overwrite_{table}"):
-                table_result = self.validator.validate_otl_operation(
-                    table.upper(), overwrite=True
-                )
-                result.messages.extend(table_result.messages)
-                if table_result.has_errors():
+        if not user_preferences.get("skip_validation"):
+            if user_preferences.get("overwrite_cmap") and self.state.has_unicode_cmap:
+                cmap_result = self.validator.validate_cmap_operation(overwrite=True)
+                result.messages.extend(cmap_result.messages)
+                if cmap_result.has_errors():
                     result.success = False
+
+            # Check for problematic overwrites
+            for table in ["gdef", "gsub", "gpos"]:
+                if user_preferences.get(f"overwrite_{table}"):
+                    table_result = self.validator.validate_otl_operation(
+                        table.upper(), overwrite=True
+                    )
+                    result.messages.extend(table_result.messages)
+                    if table_result.has_errors():
+                        result.success = False
 
         # Final summary
         if plan.has_work():
@@ -272,42 +276,42 @@ class WrapperExecutor:
             changed, msgs = create_cmap(self.font, overwrite_unicode=False)
             if changed:
                 has_changes = True
-                result.add_info("Created Unicode cmap")
             for msg in msgs:
                 result.add_info(msg)
+                if changed:
+                    result.record_change(msg)
 
-        if self.plan.needs_gdef:
+        enrich_will_define_gdef = (
+            self.plan.mark_count > 0 or self.plan.ligature_caret_count > 0
+        )
+        if self.plan.needs_gdef and not enrich_will_define_gdef:
             changed, msg = create_gdef(self.font, overwrite=False)
             if changed:
                 has_changes = True
-                result.add_info(msg)
-            else:
-                result.add_info(msg)
+                result.record_change(msg)
+            result.add_info(msg)
 
         if self.plan.needs_gpos:
             changed, msg = create_gpos(self.font, overwrite=False)
             if changed:
                 has_changes = True
-                result.add_info(msg)
-            else:
-                result.add_info(msg)
+                result.record_change(msg)
+            result.add_info(msg)
 
         if self.plan.needs_gsub:
             changed, msg = create_gsub(self.font, overwrite=False)
             if changed:
                 has_changes = True
-                result.add_info(msg)
-            else:
-                result.add_info(msg)
+                result.record_change(msg)
+            result.add_info(msg)
 
         # DSIG is handled separately in user_prefs
         if self.plan.needs_dsig:
             changed, msg = create_dsig_stub(self.font, enable=True)
             if changed:
                 has_changes = True
-                result.add_info(msg)
-            else:
-                result.add_info(msg)
+                result.record_change(msg)
+            result.add_info(msg)
 
         # Execute enrichment operations
         if (
@@ -322,10 +326,10 @@ class WrapperExecutor:
                 do_gdef_classes=self.plan.mark_count > 0,
                 do_lig_carets=self.plan.ligature_caret_count > 0,
                 drop_kern_after=False,  # Controlled by user preference
+                liga_list=self.plan.liga_ligatures if self.plan.can_infer_liga else None,
             )
             if e_changed:
                 has_changes = True
-                # Categorize enrichment messages
                 enrichment_summary = []
                 for msg in e_msgs:
                     if (
@@ -335,6 +339,7 @@ class WrapperExecutor:
                         or "built" in msg.lower()
                     ):
                         enrichment_summary.append(msg)
+                        result.record_change(msg)
                         result.add_success(msg)
                     elif "failed" in msg.lower() or "error" in msg.lower():
                         result.add_warning(msg)

@@ -11,21 +11,21 @@ import sys
 from pathlib import Path
 from typing import List
 
-# Add project root to path for FontCore imports
-_project_root = Path(__file__).parent
-while (
-    not (_project_root / "FontCore").exists() and _project_root.parent != _project_root
-):
-    _project_root = _project_root.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+_TOOLS_DIR = Path(__file__).resolve().parent
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
+
+from lib.fontcore_path import ensure_fontcore_on_path  # noqa: E402
+
+ensure_fontcore_on_path(_TOOLS_DIR)
 
 import FontCore.core_console_styles as cs  # noqa: E402
 from fontTools.ttLib import TTFont, newTable  # noqa: E402
 from fontTools.ttLib.tables import otTables  # noqa: E402
 
 from lib.coverage import sort_coverage_tables_in_font  # noqa: E402
-from lib.utils import backup_font, collect_font_files  # noqa: E402
+from lib.utils import atomic_ttfont_save, backup_font, collect_font_files  # noqa: E402
+from lib.wrapper_helpers import empty_otl_table  # noqa: E402
 from lib.validation import FontValidator  # noqa: E402
 
 try:
@@ -118,33 +118,13 @@ def apply_features_to_font(
 
     # In replace mode, clear existing GSUB/GPOS
     if replace_mode:
-        # Helper function to create empty OTL table
-        def _empty_otl_table(table_cls: type) -> object:
-            """Create empty OTL table structure."""
-            tbl = table_cls()
-            tbl.Version = 0x00010000
-            sl = otTables.ScriptList()
-            sl.ScriptCount = 0
-            sl.ScriptRecord = []
-            fl = otTables.FeatureList()
-            fl.FeatureCount = 0
-            fl.FeatureRecord = []
-            ll = otTables.LookupList()
-            ll.LookupCount = 0
-            ll.Lookup = []
-            tbl.ScriptList = sl
-            tbl.FeatureList = fl
-            tbl.LookupList = ll
-            return tbl
-
         if "GSUB" in font:
             gsub = font["GSUB"].table
             if hasattr(gsub, "LookupList") and gsub.LookupList:
                 lookup_count = len(gsub.LookupList.Lookup)
                 if lookup_count > 0:
-                    # Create empty GSUB
                     gsub_new = newTable("GSUB")
-                    gsub_new.table = _empty_otl_table(otTables.GSUB)
+                    gsub_new.table = empty_otl_table(otTables.GSUB)
                     font["GSUB"] = gsub_new
                     messages.append(f"Cleared GSUB ({lookup_count} lookups removed)")
 
@@ -153,9 +133,8 @@ def apply_features_to_font(
             if hasattr(gpos, "LookupList") and gpos.LookupList:
                 lookup_count = len(gpos.LookupList.Lookup)
                 if lookup_count > 0:
-                    # Create empty GPOS
                     gpos_new = newTable("GPOS")
-                    gpos_new.table = _empty_otl_table(otTables.GPOS)
+                    gpos_new.table = empty_otl_table(otTables.GPOS)
                     font["GPOS"] = gpos_new
                     messages.append(f"Cleared GPOS ({lookup_count} lookups removed)")
 
@@ -204,7 +183,7 @@ def main():
     parser.add_argument(
         "--backup",
         action="store_true",
-        help="Create backup before applying",
+        help="Copy font to backups/Stem_NNN.ext before applying",
     )
     parser.add_argument(
         "--verbose",
@@ -259,82 +238,74 @@ def main():
         ).emit()
 
         try:
-            font = TTFont(font_path, lazy=False)
-
-            # Validate font state
-            validator = FontValidator(font)
-            if not validator.state.has_gdef and not validator.state.has_gsub:
-                cs.StatusIndicator("warning").add_message(
-                    "Font has no GDEF or GSUB tables"
-                ).with_explanation("Will create GDEF if needed").emit()
-
-            # Detect conflicts
-            if not args.replace:
-                conflicts = detect_feature_conflicts(font, fea_content)
-                for conflict_msg in conflicts:
-                    cs.StatusIndicator("warning").add_message(conflict_msg).emit()
-
-            if args.dry_run:
-                # DRY prefix will be added automatically
-                cs.StatusIndicator("info", dry_run=True).add_message(
-                    "Would apply features"
-                ).with_explanation(
-                    f"Mode: {'replace' if args.replace else 'merge'}"
-                ).emit()
-                font.close()
-                success_count += 1
-                cs.emit("")
-                continue
-
-            # Create backup if requested
-            if args.backup:
-                backup_path = backup_font(font_path)
-                cs.StatusIndicator("info").add_message(
-                    f"Created backup: {backup_path.name}"
-                ).emit()
-
-            # Apply features
-            success, messages = apply_features_to_font(
-                font, fea_content, replace_mode=args.replace, verbose=args.verbose
-            )
-
-            if success:
-                # Sort Coverage tables
-                try:
-                    total, sorted_count = sort_coverage_tables_in_font(
-                        font, verbose=args.verbose
-                    )
-                    if sorted_count > 0:
-                        cs.StatusIndicator("info").add_message(
-                            f"Sorted {sorted_count} of {total} Coverage table(s)"
-                        ).emit()
-                except Exception as e:
+            with TTFont(font_path, lazy=False) as font:
+                # Validate font state
+                validator = FontValidator(font)
+                if not validator.state.has_gdef and not validator.state.has_gsub:
                     cs.StatusIndicator("warning").add_message(
-                        f"Failed to sort Coverage tables: {e}"
+                        "Font has no GDEF or GSUB tables"
+                    ).with_explanation("Will create GDEF if needed").emit()
+
+                # Detect conflicts
+                if not args.replace:
+                    conflicts = detect_feature_conflicts(font, fea_content)
+                    for conflict_msg in conflicts:
+                        cs.StatusIndicator("warning").add_message(conflict_msg).emit()
+
+                if args.dry_run:
+                    cs.StatusIndicator("info", dry_run=True).add_message(
+                        "Would apply features"
                     ).with_explanation(
-                        "Font will be saved but Coverage tables may not be sorted"
+                        f"Mode: {'replace' if args.replace else 'merge'}"
+                    ).emit()
+                    success_count += 1
+                    cs.emit("")
+                    continue
+
+                if args.backup:
+                    backup_path = backup_font(font_path)
+                    rel = backup_path.relative_to(font_path.parent)
+                    cs.StatusIndicator("info").add_message(
+                        f"Created backup: {rel}"
                     ).emit()
 
-                # Save font
-                font.save(font_path)
-                cs.StatusIndicator("success").add_message(
-                    f"Saved: {font_path.name}"
-                ).emit()
+                success, messages = apply_features_to_font(
+                    font, fea_content, replace_mode=args.replace, verbose=args.verbose
+                )
 
-                if args.verbose:
+                if success:
+                    try:
+                        total, sorted_count = sort_coverage_tables_in_font(
+                            font, verbose=args.verbose
+                        )
+                        if sorted_count > 0:
+                            cs.StatusIndicator("info").add_message(
+                                f"Sorted {sorted_count} of {total} Coverage table(s)"
+                            ).emit()
+                    except Exception as e:
+                        cs.StatusIndicator("warning").add_message(
+                            f"Failed to sort Coverage tables: {e}"
+                        ).with_explanation(
+                            "Font will be saved but Coverage tables may not be sorted"
+                        ).emit()
+
+                    atomic_ttfont_save(font, font_path)
+                    cs.StatusIndicator("success").add_message(
+                        f"Saved: {font_path.name}"
+                    ).emit()
+
+                    if args.verbose:
+                        for msg in messages:
+                            cs.StatusIndicator("info").add_message(msg).emit()
+
+                    success_count += 1
+                else:
+                    cs.StatusIndicator("error").add_message(
+                        "Failed to apply features"
+                    ).emit()
                     for msg in messages:
-                        cs.StatusIndicator("info").add_message(msg).emit()
-
-                success_count += 1
-            else:
-                cs.StatusIndicator("error").add_message(
-                    "Failed to apply features"
-                ).emit()
-                for msg in messages:
-                    cs.StatusIndicator("error").add_message(msg).emit()
-                error_count += 1
-
-            font.close()
+                        cs.StatusIndicator("error").add_message(msg).emit()
+                    error_count += 1
 
         except Exception as e:
             cs.StatusIndicator("error").add_message(
@@ -344,11 +315,9 @@ def main():
 
         cs.emit("")
 
-    # Summary
-    if len(font_files) > 1:
-        cs.StatusIndicator("success").add_message(
-            "Processing complete"
-        ).with_summary_block(updated=success_count, errors=error_count).emit()
+    cs.StatusIndicator("success").add_message(
+        "Processing complete"
+    ).with_summary_block(updated=success_count, errors=error_count).emit()
 
     return 0 if error_count == 0 else 1
 

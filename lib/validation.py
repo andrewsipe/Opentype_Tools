@@ -13,6 +13,7 @@ from fontTools.agl import toUnicode
 from fontTools.ttLib import TTFont
 
 from .config import CONFIG
+from .detection import UnifiedGlyphDetector
 from .results import OperationResult
 
 
@@ -312,46 +313,8 @@ class FontValidator:
 
     def _detect_ligature_opportunities(self) -> List[tuple]:
         """Helper to detect potential ligatures."""
-        # Simplified version - will be replaced by UnifiedGlyphDetector later
-        ligatures = []
-        glyph_order = set(self.font.getGlyphOrder())
-        best_cmap = self.font.getBestCmap() or {}
-
-        for glyph_name in glyph_order:
-            base = glyph_name.split(".")[0]
-            components = []
-
-            if "_" in base:
-                parts = base.split("_")
-            elif len(base) == 2 and all(ch.isalpha() for ch in base):
-                parts = [base[0], base[1]]
-            else:
-                continue
-
-            for part in parts:
-                if part.startswith("uni") and len(part) >= 7:
-                    hex_part = part[3:7]
-                    try:
-                        codepoint = int(hex_part, 16)
-                        glyph = best_cmap.get(codepoint)
-                        if not glyph:
-                            components = []
-                            break
-                        components.append(glyph)
-                    except ValueError:
-                        components = []
-                        break
-                else:
-                    if part in glyph_order:
-                        components.append(part)
-                    else:
-                        components = []
-                        break
-
-            if len(components) >= 2:
-                ligatures.append((components, glyph_name))
-
-        return ligatures
+        detector = UnifiedGlyphDetector(self.font)
+        return detector.get_features()["liga"]
 
     def _detect_marks(self) -> Set[str]:
         """Helper to detect mark glyphs."""
