@@ -18,6 +18,7 @@ https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/detection.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/feature_extraction.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/feature_generation.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/fontcore_path.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/results.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/ss_labeler.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/utils.py
