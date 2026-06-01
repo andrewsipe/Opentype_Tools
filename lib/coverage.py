@@ -16,15 +16,12 @@ from .fontcore_path import ensure_fontcore_on_path
 
 ensure_fontcore_on_path(Path(__file__).resolve().parent.parent)
 
+from FontCore.core_gpos_repair import (  # noqa: E402
+    get_glyph_id,
+    iter_expand_subtables,
+    repair_pairpos_second_glyph_order,
+)
 import FontCore.core_console_styles as cs  # noqa: E402
-
-
-def get_glyph_id(font: TTFont, glyph_name: str) -> int:
-    """Get the glyph ID for a glyph name."""
-    try:
-        return font.getGlyphID(glyph_name)
-    except (KeyError, ValueError, AttributeError):
-        return float("inf")  # Put unknown glyphs at the end
 
 
 def sort_coverage(font: TTFont, coverage) -> bool:
@@ -82,7 +79,7 @@ def process_lookup(font: TTFont, lookup) -> int:
     if not hasattr(lookup, "SubTable"):
         return sorted_count
 
-    for subtable in lookup.SubTable:
+    for subtable in iter_expand_subtables(lookup.SubTable):
         cov = getattr(subtable, "Coverage", None)
         pair_sets = getattr(subtable, "PairSet", None)
         lig_keys = getattr(subtable, "ligatures", None)
@@ -305,6 +302,16 @@ def sort_coverage_tables_in_font(
     gdef_total, gdef_sorted = process_gdef(font)
     total_coverage += gdef_total
     sorted_count += gdef_sorted
+
+    pairpos_fixes = repair_pairpos_second_glyph_order(font)
+    sorted_count += len(pairpos_fixes)
+
+    if verbose and pairpos_fixes:
+        for lookup_index, first_glyph, old_order, new_order in pairpos_fixes:
+            cs.StatusIndicator("info").add_message(
+                f"GPOS Lookup[{lookup_index}] {first_glyph}: "
+                f"reordered pair targets {old_order} -> {new_order}"
+            ).emit()
 
     if verbose and total_coverage > 0:
         cs.StatusIndicator("info").add_message(
