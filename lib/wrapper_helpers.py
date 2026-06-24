@@ -5,6 +5,7 @@ Functions for creating OpenType tables (cmap, GDEF, GSUB, GPOS) and enriching fo
 with inferred features like ligatures and kerning.
 """
 
+import re
 import unicodedata
 import warnings
 from typing import Dict, List, Optional, Set, Tuple
@@ -218,8 +219,19 @@ def _invert_best_cmap(font: TTFont) -> Dict[str, List[int]]:
     return inv
 
 
+def _glyph_name_suggests_mark(glyph_name: str) -> bool:
+    """True when a glyph name looks like a combining mark, not e.g. ``trademark``."""
+    lower = glyph_name.lower()
+    if lower in {"mark", "comb"}:
+        return True
+    if lower.endswith("comb"):
+        return True
+    parts = re.split(r"[._-]", lower)
+    return "comb" in parts or "mark" in parts
+
+
 def _detect_mark_glyphs(font: TTFont) -> Set[str]:
-    """Detect mark glyphs by Unicode categories."""
+    """Detect mark glyphs by Unicode categories and naming conventions."""
     inv = _invert_best_cmap(font)
     marks: Set[str] = set()
     for g, cps in inv.items():
@@ -229,8 +241,7 @@ def _detect_mark_glyphs(font: TTFont) -> Set[str]:
                 marks.add(g)
                 break
     for g in font.getGlyphOrder():
-        lower = g.lower()
-        if any(tok in lower for tok in ("comb", "mark")):
+        if _glyph_name_suggests_mark(g):
             marks.add(g)
     return marks
 
@@ -295,6 +306,39 @@ def build_kern_feature_text(font: TTFont) -> Optional[str]:
     return "\n".join(["feature kern {", *rules, "} kern;"])
 
 
+def fea_target_tables(feature_text: str) -> List[str]:
+    """Limit feaLib compilation so GPOS-only kern FEA does not wipe GSUB (and vice versa)."""
+    import re
+
+    text = feature_text or ""
+    tables: List[str] = []
+    has_kern = bool(re.search(r"feature\s+kern\s*\{", text))
+    has_pos = bool(re.search(r"^\s*pos\s+", text, re.MULTILINE))
+    has_sub = bool(re.search(r"^\s*sub\s+", text, re.MULTILINE))
+    has_gsub_feature = bool(re.search(r"feature\s+(?!kern\b)\w+\s*\{", text))
+
+    if has_kern or has_pos:
+        tables.append("GPOS")
+    if has_sub or has_gsub_feature:
+        tables.append("GSUB")
+    return tables or ["GSUB", "GPOS"]
+
+
+def ensure_otl_scaffolding(font: TTFont) -> List[str]:
+    """Ensure empty OTL shells exist after feaLib enrichment (safety net)."""
+    messages: List[str] = []
+    if "GSUB" not in font:
+        _, msg = create_gsub(font, overwrite=False)
+        messages.append(msg)
+    if "GPOS" not in font:
+        _, msg = create_gpos(font, overwrite=False)
+        messages.append(msg)
+    if "GDEF" not in font:
+        _, msg = create_gdef(font, overwrite=False)
+        messages.append(msg)
+    return messages
+
+
 def apply_feature_text(font: TTFont, feature_text: str) -> Tuple[bool, str]:
     """Apply feature text to font."""
     if not feature_text:
@@ -302,7 +346,8 @@ def apply_feature_text(font: TTFont, feature_text: str) -> Tuple[bool, str]:
     if not HAVE_FEALIB:
         return False, "feaLib not available; cannot build features"
     try:
-        addOpenTypeFeaturesFromString(font, feature_text)
+        tables = fea_target_tables(feature_text)
+        addOpenTypeFeaturesFromString(font, feature_text, tables=tables)
         return True, "features compiled"
     except Exception as e:
         return False, f"feature build failed: {e}"

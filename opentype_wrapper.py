@@ -29,13 +29,11 @@ from lib.validation import FontValidator  # noqa: E402
 from lib.wrapper import WrapperExecutor, WrapperStrategyEngine  # noqa: E402
 
 
-def _is_truetype_outline_sfnt(font: TTFont) -> bool:
-    """True if font uses sfnt glyf/TrueType outline (wrapper target); False for ``OTTO``/CFF-only."""
-    reader = getattr(font, "reader", None)
-    if reader is None:
-        return False
-    ver = getattr(reader, "sfntVersion", None)
-    return ver in (b"\x00\x01\x00\x00", b"true")
+def _is_wrappable_sfnt(font: TTFont) -> bool:
+    """True for TrueType-outline and CFF OpenType sfnt fonts."""
+    from lib.wrap_assess import is_wrappable_sfnt
+
+    return is_wrappable_sfnt(font)
 
 
 def main() -> int:
@@ -117,12 +115,11 @@ def main() -> int:
 
         try:
             with TTFont(font_path, lazy=False) as font:
-                if not _is_truetype_outline_sfnt(font):
+                if not _is_wrappable_sfnt(font):
                     cs.StatusIndicator("warning").add_message(
-                        "Skipping font (not TrueType-outline sfnt)"
+                        "Skipping font (unsupported sfnt container)"
                     ).with_explanation(
-                        "This wrapper targets fonts with glyf outlines "
-                        "(sfnt \\x00\\x01\\x00\\x00 or ``true``), not OTTO/CFF‑only shells."
+                        "Wrap supports TrueType (glyf) and OpenType/CFF (OTTO) fonts."
                     ).emit()
                     success_count += 1
                     cs.emit("")

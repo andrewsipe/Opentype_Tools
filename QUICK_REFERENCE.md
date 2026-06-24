@@ -4,6 +4,7 @@
 
 | Tool | Purpose | Input | Output |
 |------|---------|-------|--------|
+| **`OpentypeFlow.py`** | **Daily driver: scan, wrap, connect, aalt, verify, sort, pipeline** | Font dirs/files | Terminal matrix; optional family report |
 | `opentype_coverage_sorter.py` | Sort Coverage tables by GlyphID | Font files | Modified fonts |
 | `opentype_wrapper.py` | Add OpenType scaffolding + enrichment | TrueType fonts | OpenType fonts |
 | `opentype_ss_repair.py` | Fix stylistic set metadata | Fonts with SS | Fixed fonts |
@@ -12,19 +13,94 @@
 
 ---
 
+## OpentypeFlow (recommended daily workflow)
+
+```bash
+# Family analysis — installed features, wrap check, glyph gaps, graded recommendations (default)
+./OpentypeFlow.py scan ./MyFamily -r
+
+# Optional: also write one family report per directory (json + txt)
+./OpentypeFlow.py scan ./MyFamily -r --write-report
+
+# Preview reconnections (no font changes; respects scan tiers HIGH+MED)
+./OpentypeFlow.py connect ./MyFamily -r --dry-run
+
+# Apply reconnections after review (-y skips confirmation; merges into existing GSUB)
+./OpentypeFlow.py connect ./MyFamily -r --apply --backup -y
+
+# Include optional tiers (salt = LOW; frac/ordn/case = MANUAL — FEA only, merge skips contextual on apply)
+./OpentypeFlow.py connect ./MyFamily -r --include-low --include-manual --dry-run
+
+# Add OTL scaffolding + enrichment (TrueType and OpenType/CFF)
+./OpentypeFlow.py wrap ./MyFamily -r --backup
+
+# Build aalt (Access All Alternates) from installed GSUB features
+./OpentypeFlow.py aalt ./MyFamily -r --dry-run
+./OpentypeFlow.py aalt ./MyFamily -r --apply --backup -y
+
+# Post-workflow health check (read-only)
+./OpentypeFlow.py verify ./MyFamily -r
+./OpentypeFlow.py verify ./MyFamily -r --strict
+
+# Full pipeline: scan → wrap → connect → aalt → verify → sort
+./OpentypeFlow.py pipeline ./MyFamily -r --backup -y
+```
+
+**`scan` terminal sections** (non-destructive analysis):
+
+1. **Glyph inventory** — glyph count, Unicode-mapped count, variant glyphs detected (explains trial/subset fonts)
+2. **Installed features** — GSUB/GPOS tags with populated / empty / lookups-only depth
+3. **Installed beyond naming-policy** — tags present in the font but not in the glyph-detected matrix (e.g. `aalt`, `rlig`, `locl`)
+4. **Wrap assessment** — missing OTL scaffolding, stripped/omitted OTL suspicion, dry-run wrap plan
+5. **Glyph-detected features** — naming-pattern matrix (~22 policy tags + ss01–ss20)
+6. **Recommendations** — graded HIGH / MED / LOW / MANUAL; skips zero-work items and glyphs wired under sibling tags (e.g. `rlig` vs `liga`)
+
+**Connect** reads scan tiers (default HIGH+MED), blocks trial fonts and missing GSUB, merges into existing GSUB on apply.
+
+**`aalt`** indexes populated GSUB features (`liga`, `ss01`, etc.) into an `aalt` feature. Writes `{stem}_aalt.fea` under `otl_reports/`. Skips fonts that already have populated `aalt` unless `--force`. Pipeline auto-applies when not `--dry-run`.
+
+**`verify`** re-runs gap analysis (HIGH+MED), OTL-stripped checks, empty feature shells, and missing GSUB ScriptList. Exit code 1 on errors; `--strict` also fails on warnings.
+
+**Optional report layout** (`scan --write-report`, one report per font directory — not per font):
+
+```
+MyFamily/
+  Regular.otf
+  Bold.otf
+  otl_reports/
+    family_summary.json
+    family_matrix.txt
+```
+
+Per-font audit FEA/JSON: use standalone `opentype_feature_audit.py` if needed.
+`connect --apply` writes `{stem}_connect.fea` only when reconnections exist.
+`aalt` writes `{stem}_aalt.fea` when an update is planned.
+
+**Pipeline skip flags:** `--no-wrap`, `--no-connect`, `--no-aalt`, `--no-verify`, `--no-sort`
+
+**Global flags:** `-r` recursive, `--dry-run`, `-v` verbose, `-y` skip prompts, `--backup`, `--output-dir DIR`
+
+---
+
 ## Common Workflows
 
 ### 1. Audit Features in a Font
 
 ```bash
-# Generate .fea file with all features (active, inactive, suggested)
+# Default: writes to otl_reports/ beside the font
+./opentype_feature_audit.py MyFont.otf
+
+# Batch family (one .fea per font in each otl_reports/)
+./opentype_feature_audit.py ./MyFamily -r
+
+# Explicit output path
 ./opentype_feature_audit.py MyFont.otf --output audit.fea
 
-# Generate JSON report instead
+# JSON report
 ./opentype_feature_audit.py MyFont.otf --output audit.json --format json
 
-# Audit without suggestions (only active/inactive)
-./opentype_feature_audit.py MyFont.otf --output audit.fea --no-suggest
+# Audit without suggestions
+./opentype_feature_audit.py MyFont.otf --no-suggest
 ```
 
 **Output:** Human-readable .fea file with commented sections
@@ -45,6 +121,9 @@
 
 # Dry run (show what would happen)
 ./opentype_feature_apply.py MyFont.otf --input features.fea --dry-run
+
+# Apply per-font connect FEA from otl_reports/
+./opentype_feature_apply.py ./MyFamily -r --input-dir ./MyFamily/otl_reports --backup
 ```
 
 **Result:** Font updated with new features, Coverage tables sorted

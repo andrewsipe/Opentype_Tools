@@ -19,6 +19,7 @@ from .wrapper_helpers import (
     create_gpos,
     create_gsub,
     enrich_font,
+    ensure_otl_scaffolding,
 )
 
 
@@ -355,5 +356,12 @@ class WrapperExecutor:
                 result.add_info("Enrichment attempted but no changes made")
                 for msg in e_msgs:
                     result.add_info(msg)
+
+        scaffold_msgs = ensure_otl_scaffolding(self.font)
+        for msg in scaffold_msgs:
+            if "Created" in msg:
+                has_changes = True
+                result.record_change(msg)
+            result.add_info(msg)
 
         return result, has_changes

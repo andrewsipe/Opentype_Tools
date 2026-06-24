@@ -1,0 +1,11 @@
+{
+  "onum": ["lnum"],
+  "lnum": ["onum"],
+  "tnum": ["pnum"],
+  "pnum": ["tnum"],
+  "numr": ["dnom", "subs", "sups", "sinf"],
+  "dnom": ["numr", "subs", "sups", "sinf"],
+  "subs": ["numr", "dnom", "sups", "sinf"],
+  "sups": ["numr", "dnom", "subs", "sinf"],
+  "sinf": ["numr", "dnom", "subs", "sups"]
+}

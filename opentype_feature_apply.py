@@ -9,7 +9,6 @@ Thin wrapper around fontTools.feaLib with safety features.
 import argparse
 import sys
 from pathlib import Path
-from typing import List
 
 _TOOLS_DIR = Path(__file__).resolve().parent
 if str(_TOOLS_DIR) not in sys.path:
@@ -20,131 +19,18 @@ from lib.fontcore_path import ensure_fontcore_on_path  # noqa: E402
 ensure_fontcore_on_path(_TOOLS_DIR)
 
 import FontCore.core_console_styles as cs  # noqa: E402
-from fontTools.ttLib import TTFont, newTable  # noqa: E402
-from fontTools.ttLib.tables import otTables  # noqa: E402
+from fontTools.ttLib import TTFont  # noqa: E402
 
 from lib.coverage import sort_coverage_tables_in_font  # noqa: E402
+from lib.feature_apply import (  # noqa: E402
+    HAVE_FEALIB,
+    apply_features_to_font,
+    detect_feature_conflicts,
+    parse_fea_file,
+)
+from lib.io_paths import connect_fea_path  # noqa: E402
 from lib.utils import atomic_ttfont_save, backup_font, collect_font_files  # noqa: E402
-from lib.wrapper_helpers import empty_otl_table  # noqa: E402
 from lib.validation import FontValidator  # noqa: E402
-
-try:
-    from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
-
-    HAVE_FEALIB = True
-except Exception:
-    HAVE_FEALIB = False
-    addOpenTypeFeaturesFromString = None
-
-
-def parse_fea_file(fea_path: Path) -> str:
-    """Read and parse .fea file."""
-    try:
-        with open(fea_path, "r", encoding="utf-8") as f:
-            return f.read()
-    except Exception as e:
-        raise ValueError(f"Failed to read .fea file: {e}")
-
-
-def detect_feature_conflicts(font: TTFont, fea_content: str) -> List[str]:
-    """
-    Detect potential conflicts between existing features and .fea file.
-
-    Returns list of warning messages.
-    """
-    warnings = []
-
-    # Extract feature tags from .fea file (simple regex-based extraction)
-    import re
-
-    fea_tags = set()
-    for match in re.finditer(r"feature\s+(\w+)\s*\{", fea_content):
-        fea_tags.add(match.group(1))
-
-    # Get existing feature tags
-    existing_tags = set()
-
-    if "GSUB" in font:
-        gsub = font["GSUB"].table
-        if hasattr(gsub, "FeatureList") and gsub.FeatureList:
-            for frec in gsub.FeatureList.FeatureRecord:
-                existing_tags.add(frec.FeatureTag)
-
-    if "GPOS" in font:
-        gpos = font["GPOS"].table
-        if hasattr(gpos, "FeatureList") and gpos.FeatureList:
-            for frec in gpos.FeatureList.FeatureRecord:
-                existing_tags.add(frec.FeatureTag)
-
-    # Check for conflicts
-    conflicts = fea_tags.intersection(existing_tags)
-    if conflicts:
-        warnings.append(
-            f"Features already exist: {', '.join(sorted(conflicts))}. "
-            "They will be merged/replaced depending on mode."
-        )
-
-    return warnings
-
-
-def apply_features_to_font(
-    font: TTFont,
-    fea_content: str,
-    replace_mode: bool = False,
-    verbose: bool = False,
-) -> tuple[bool, list[str]]:
-    """
-    Apply .fea content to font.
-
-    Returns: (success, messages)
-    """
-    messages = []
-
-    if not HAVE_FEALIB:
-        return False, ["fontTools.feaLib is required but not available"]
-
-    # Ensure GDEF exists (required for features)
-    if "GDEF" not in font:
-        gdef = newTable("GDEF")
-        gdef.table = otTables.GDEF()
-        gdef.table.Version = 0x00010000
-        gdef.table.GlyphClassDef = None
-        gdef.table.AttachList = None
-        gdef.table.LigCaretList = None
-        gdef.table.MarkAttachClassDef = None
-        gdef.table.MarkGlyphSetsDef = None
-        font["GDEF"] = gdef
-        messages.append("Created GDEF table (required for features)")
-
-    # In replace mode, clear existing GSUB/GPOS
-    if replace_mode:
-        if "GSUB" in font:
-            gsub = font["GSUB"].table
-            if hasattr(gsub, "LookupList") and gsub.LookupList:
-                lookup_count = len(gsub.LookupList.Lookup)
-                if lookup_count > 0:
-                    gsub_new = newTable("GSUB")
-                    gsub_new.table = empty_otl_table(otTables.GSUB)
-                    font["GSUB"] = gsub_new
-                    messages.append(f"Cleared GSUB ({lookup_count} lookups removed)")
-
-        if "GPOS" in font:
-            gpos = font["GPOS"].table
-            if hasattr(gpos, "LookupList") and gpos.LookupList:
-                lookup_count = len(gpos.LookupList.Lookup)
-                if lookup_count > 0:
-                    gpos_new = newTable("GPOS")
-                    gpos_new.table = empty_otl_table(otTables.GPOS)
-                    font["GPOS"] = gpos_new
-                    messages.append(f"Cleared GPOS ({lookup_count} lookups removed)")
-
-    # Apply features
-    try:
-        addOpenTypeFeaturesFromString(font, fea_content)
-        messages.append("Features compiled and applied successfully")
-        return True, messages
-    except Exception as e:
-        return False, [f"Failed to compile features: {e}"]
 
 
 def main():
@@ -161,8 +47,12 @@ def main():
         "--input",
         "-i",
         type=str,
-        required=True,
-        help="Input .fea file path",
+        help="Input .fea file path (single font or shared)",
+    )
+    parser.add_argument(
+        "--input-dir",
+        type=str,
+        help="Directory of per-font connect FEA files (otl_reports/)",
     )
     parser.add_argument(
         "--recursive",
@@ -200,24 +90,32 @@ def main():
         ).with_explanation("Install fonttools package").emit()
         return 1
 
-    # Read .fea file
-    fea_path = Path(args.input)
-    if not fea_path.exists():
+    if not args.input and not args.input_dir:
         cs.StatusIndicator("error").add_message(
-            f".fea file not found: {fea_path}"
+            "Specify --input or --input-dir"
         ).emit()
         return 1
 
-    try:
-        fea_content = parse_fea_file(fea_path)
-    except Exception as e:
-        cs.StatusIndicator("error").add_message(f"Failed to read .fea file: {e}").emit()
-        return 1
+    shared_fea_content = None
+    if args.input:
+        fea_path = Path(args.input)
+        if not fea_path.exists():
+            cs.StatusIndicator("error").add_message(
+                f".fea file not found: {fea_path}"
+            ).emit()
+            return 1
+        try:
+            shared_fea_content = parse_fea_file(fea_path)
+        except Exception as e:
+            cs.StatusIndicator("error").add_message(
+                f"Failed to read .fea file: {e}"
+            ).emit()
+            return 1
+        cs.StatusIndicator("info").add_message(
+            f"Loaded .fea file: {fea_path.name}"
+        ).emit()
+        cs.emit("")
 
-    cs.StatusIndicator("info").add_message(f"Loaded .fea file: {fea_path.name}").emit()
-    cs.emit("")
-
-    # Collect font files
     font_files = collect_font_files(args.fonts, recursive=args.recursive)
 
     if not font_files:
@@ -237,16 +135,41 @@ def main():
             f"Processing: {font_path.name}"
         ).emit()
 
+        if args.input_dir:
+            fea_path = Path(args.input_dir) / f"{font_path.stem}_connect.fea"
+            if not fea_path.exists():
+                fea_path = connect_fea_path(font_path)
+        elif shared_fea_content is not None:
+            fea_path = None
+            fea_content = shared_fea_content
+        else:
+            fea_path = connect_fea_path(font_path)
+
+        if fea_path is not None:
+            if not fea_path.exists():
+                cs.StatusIndicator("warning").add_message(
+                    f"No .fea file for {font_path.name}: {fea_path.name}"
+                ).emit()
+                cs.emit("")
+                continue
+            try:
+                fea_content = parse_fea_file(fea_path)
+            except Exception as e:
+                cs.StatusIndicator("error").add_message(
+                    f"Failed to read {fea_path.name}: {e}"
+                ).emit()
+                error_count += 1
+                cs.emit("")
+                continue
+
         try:
             with TTFont(font_path, lazy=False) as font:
-                # Validate font state
                 validator = FontValidator(font)
                 if not validator.state.has_gdef and not validator.state.has_gsub:
                     cs.StatusIndicator("warning").add_message(
                         "Font has no GDEF or GSUB tables"
                     ).with_explanation("Will create GDEF if needed").emit()
 
-                # Detect conflicts
                 if not args.replace:
                     conflicts = detect_feature_conflicts(font, fea_content)
                     for conflict_msg in conflicts:
@@ -270,7 +193,10 @@ def main():
                     ).emit()
 
                 success, messages = apply_features_to_font(
-                    font, fea_content, replace_mode=args.replace, verbose=args.verbose
+                    font,
+                    fea_content,
+                    replace_mode=args.replace,
+                    merge_mode=not args.replace,
                 )
 
                 if success:
@@ -285,8 +211,6 @@ def main():
                     except Exception as e:
                         cs.StatusIndicator("warning").add_message(
                             f"Failed to sort Coverage tables: {e}"
-                        ).with_explanation(
-                            "Font will be saved but Coverage tables may not be sorted"
                         ).emit()
 
                     atomic_ttfont_save(font, font_path)

@@ -14,7 +14,10 @@ from .fontcore_path import ensure_fontcore_on_path
 
 ensure_fontcore_on_path(Path(__file__).resolve().parent.parent)
 
-from FontCore.core_file_collector import collect_font_files as core_collect_font_files  # noqa: E402
+from FontCore.core_file_collector import (  # noqa: E402
+    collect_font_files as core_collect_font_files,
+    collect_font_files_with_rich_progress,
+)
 
 
 # Subfolder beside the font; numbered copies stay out of the main folder.
@@ -60,6 +63,24 @@ def atomic_ttfont_save(font: TTFont, font_path: Path) -> None:
     tmp_path = dest.parent / (dest.name + ".tmp")
     font.save(tmp_path)
     tmp_path.replace(dest)
+
+
+def collect_font_files_flow(paths: List[str], recursive: bool = False) -> List[Path]:
+    """Collect font files using FontCore rich progress when available."""
+    collected = collect_font_files_with_rich_progress(
+        paths,
+        recursive=recursive,
+        allowed_extensions={".ttf", ".otf"},
+        description="Scanning fonts",
+    )
+    return [Path(p) for p in collected]
+
+
+def group_fonts_by_parent(font_paths: List[Path]) -> dict:
+    """Group fonts by parent directory."""
+    from .io_paths import group_fonts_by_parent as _group
+
+    return _group(font_paths)
 
 
 def collect_font_files(paths: List[str], recursive: bool = False) -> List[Path]:

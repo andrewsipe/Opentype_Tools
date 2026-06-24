@@ -55,30 +55,9 @@ class FeatureConfig:
         }
     )
 
-    # Phase 1 feature patterns
-    PHASE1_FEATURE_PATTERNS: Dict[str, List[str]] = field(
-        default_factory=lambda: {
-            "frac": [".numerator", ".denominator", ".numr", ".dnom"],
-            "sups": [".superior", ".sups"],
-            "subs": [".inferior", ".subs"],
-            "ordn": [".ordn"],
-            "c2sc": [".c2sc"],
-            "salt": [".alt", ".alt01", ".alt02"],
-            "zero": [".slash", ".zero"],
-            "case": [".case"],
-            "titl": [".titling", ".titl"],
-        }
-    )
-
-    # Phase 2 feature patterns
-    PHASE2_FEATURE_PATTERNS: Dict[str, List[str]] = field(
-        default_factory=lambda: {
-            "numr": [".numr"],
-            "dnom": [".dnom"],
-            "sinf": [".sinf"],
-            "hist": [".hist"],
-        }
-    )
+    # Phase 1/2 patterns — see lib/feature_policy.py (source of truth)
+    PHASE1_FEATURE_PATTERNS: Dict[str, List[str]] = field(default_factory=dict)
+    PHASE2_FEATURE_PATTERNS: Dict[str, List[str]] = field(default_factory=dict)
 
     # Glyph name patterns
     SPECIAL_GLYPHS: Set[str] = frozenset({".notdef", ".null", "nonmarkingreturn"})
@@ -93,5 +72,29 @@ class FeatureConfig:
     )
 
 
+def _build_phase_patterns() -> tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+    from .feature_policy import FRAC_FEATURE, SINGLE_FEATURES
+
+    phase1: Dict[str, List[str]] = {
+        "frac": list(FRAC_FEATURE.patterns),
+    }
+    phase2_tags = {"numr", "dnom", "sinf", "hist"}
+    phase2: Dict[str, List[str]] = {}
+    for entry in SINGLE_FEATURES:
+        if not entry.patterns:
+            continue
+        if entry.tag in phase2_tags:
+            phase2[entry.tag] = list(entry.patterns)
+        elif entry.tag not in phase1:
+            phase1[entry.tag] = list(entry.patterns)
+    return phase1, phase2
+
+
+_p1, _p2 = _build_phase_patterns()
+
+
 # Global configuration instance
-CONFIG = FeatureConfig()
+CONFIG = FeatureConfig(
+    PHASE1_FEATURE_PATTERNS=_p1,
+    PHASE2_FEATURE_PATTERNS=_p2,
+)

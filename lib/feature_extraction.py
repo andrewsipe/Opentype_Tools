@@ -150,7 +150,7 @@ class FeatureExtractor:
             for first_glyph, lig_list in subtable.ligatures.items():
                 for lig in lig_list:
                     # Build component list
-                    components = [first_glyph] + lig.Component
+                    components = [first_glyph] + list(lig.Component)
                     lig_glyph = lig.LigGlyph
                     rules.append(f"sub {' '.join(components)} by {lig_glyph};")
 
