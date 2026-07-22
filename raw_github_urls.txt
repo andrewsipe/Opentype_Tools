@@ -1,6 +1,8 @@
 # Root directory
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/.gitmodules
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/AUDIT_REPORT.md
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/FontCore
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/OpentypeFlow.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/QUICK_REFERENCE.md
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/README.md
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/opentype_coverage_sorter.py
@@ -10,20 +12,59 @@ https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/open
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/opentype_wrapper.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/requirements.txt
 
+# data/
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/data/feature_conflicts.json
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/data/feature_registry.json
+
 # lib/
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/__init__.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/aalt_builder.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/analyze.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/config.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/connect.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/coverage.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/detection.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/family_rollup.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/feature_apply.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/feature_extraction.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/feature_generation.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/feature_policy.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/flow_commands.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/flow_context.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/fontcore_path.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/gsub_merge.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/io_paths.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/models.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/otl_inventory.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/policy_data.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/recommendations.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/report_render.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/results.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/scan_render.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/ss_labeler.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/utils.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/validation.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/verify.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/verify_render.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/wrap_assess.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/wrapper.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/lib/wrapper_helpers.py
+
+# tests/
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/tests/conftest.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/tests/test_aalt_builder.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/tests/test_analyze.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/tests/test_connect.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/tests/test_connect_gates.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/tests/test_gsub_merge.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/tests/test_ligature_detection.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/tests/test_mark_detection.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/tests/test_policy_enrichment.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/tests/test_recommendations.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/tests/test_scan_analysis.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/tests/test_scan_wrap.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/tests/test_verify.py
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/tests/test_wrap_kern.py
 
 # FontCore/
 https://raw.githubusercontent.com/andrewsipe/FontCore/main/CoreDemoTool.py
@@ -41,6 +82,7 @@ https://raw.githubusercontent.com/andrewsipe/FontCore/main/core_font_style_dicti
 https://raw.githubusercontent.com/andrewsipe/FontCore/main/core_font_utils.py
 https://raw.githubusercontent.com/andrewsipe/FontCore/main/core_gpos_repair.py
 https://raw.githubusercontent.com/andrewsipe/FontCore/main/core_logging_config.py
+https://raw.githubusercontent.com/andrewsipe/FontCore/main/core_name_attribution.py
 https://raw.githubusercontent.com/andrewsipe/FontCore/main/core_name_policies.py
 https://raw.githubusercontent.com/andrewsipe/FontCore/main/core_nameid_allocator.py
 https://raw.githubusercontent.com/andrewsipe/FontCore/main/core_nameid_replacer_base.py
@@ -49,5 +91,11 @@ https://raw.githubusercontent.com/andrewsipe/FontCore/main/core_ot_label_scanner
 https://raw.githubusercontent.com/andrewsipe/FontCore/main/core_stat_builder.py
 https://raw.githubusercontent.com/andrewsipe/FontCore/main/core_string_utils.py
 https://raw.githubusercontent.com/andrewsipe/FontCore/main/core_ttx_table_io.py
+https://raw.githubusercontent.com/andrewsipe/FontCore/main/core_variable_filename_parser.py
 https://raw.githubusercontent.com/andrewsipe/FontCore/main/core_variable_font_detection.py
 https://raw.githubusercontent.com/andrewsipe/FontCore/main/requirements.txt
+# FontCore/tests/
+https://raw.githubusercontent.com/andrewsipe/FontCore/main/tests/__init__.py
+https://raw.githubusercontent.com/andrewsipe/FontCore/main/tests/test_name_attribution.py
+https://raw.githubusercontent.com/andrewsipe/FontCore/main/tests/test_preserve_low_nameids.py
+https://raw.githubusercontent.com/andrewsipe/FontCore/main/tests/test_variable_name_policies.py
