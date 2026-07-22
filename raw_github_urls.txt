@@ -1,6 +1,7 @@
 # Root directory
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/.gitmodules
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/AUDIT_REPORT.md
+https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/FontCore
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/OpentypeFlow.py
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/QUICK_REFERENCE.md
 https://raw.githubusercontent.com/andrewsipe/OpentypeFeaturesGenerator/main/README.md
